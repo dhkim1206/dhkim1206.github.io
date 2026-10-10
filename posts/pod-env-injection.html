@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>kubelet의 env 조립 순서</title>
+<title>파드 환경변수 조립 과정</title>
 <meta name="description" content="ConfigMap의 키는 맞는데 파드가 다른 키를 쓴 원인을, env가 envFrom을 덮는 지점까지 거꾸로 추적한 기록. 재시작 전 env 고정, 없는 secretRef, ${VAR} 미치환도 함께 다룬다.">
 <meta property="og:type" content="article">
-<meta property="og:title" content="kubelet은 env로 envFrom을 덮는다 — 파드 안 키가 ConfigMap과 달랐던 이유를 makeEnvironmentVariables까지 추적">
+<meta property="og:title" content="파드 환경변수 주입 방식별 우선순위와 값이 조립되는 과정">
 <meta property="og:description" content="env가 envFrom을 덮는 지점을, 파드 안 값의 출처부터 거꾸로 추적한 기록.">
 <meta name="author" content="dhkim1206">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -152,7 +152,7 @@ figure.fig.expanded .figscroll svg{width:auto; min-width:1400px !important}
 </head><body>
 <div class="wrap">
 <header class="top col">
-  <h1>kubelet은 env로 envFrom을 덮는다 — 파드 안 키가 ConfigMap과 달랐던 이유를 makeEnvironmentVariables까지 추적</h1>
+  <h1>파드 환경변수 주입 방식별 우선순위와 값이 조립되는 과정</h1>
   <p class="lede">파드 안 환경변수 값의 출처를 거꾸로 따라가며, 재시작 전 env 고정·없는 secretRef·${VAR} 미치환까지 확인한 기록입니다.</p>
 </header>
 </div>
