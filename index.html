@@ -27,7 +27,7 @@ footer{margin-top:48px;color:var(--muted);font-size:13px}
 </style></head><body>
 <div class="col">
 <header><h1>dhkim1206 기술 노트</h1><p>인프라·쿠버네티스 실무에서 겪은 동작 원리와 트러블슈팅을 그림과 함께 정리합니다.</p></header>
-<main><ul class="posts"><li><a href="posts/configmap-injection.html"><span class="m">2026-10-11 · Kubernetes · ConfigMap · 실측</span><span class="t">kubelet은 ConfigMap 변경을 언제 파드에 넣는가</span><span class="s">주입 방식 다섯 가지를 한 파드에 걸고, 값을 바꿨을 때 각 경로가 언제 새 값을 보이는지 잰 기록.</span></a></li><li><a href="posts/pod-env-injection.html"><span class="m">2026-10-10 · Kubernetes · 트러블슈팅</span><span class="t">kubelet은 env로 envFrom을 덮는다 — 파드 안 키가 ConfigMap과 달랐던 이유를 makeEnvironmentVariables까지 추적</span><span class="s">env가 envFrom을 덮는 지점을, 파드 안 값의 출처부터 거꾸로 추적한 기록.</span></a></li></ul></main>
+<main><ul class="posts"><li><a href="posts/configmap-injection.html"><span class="m">2026-10-11 · Kubernetes · ConfigMap · 실측</span><span class="t">ConfigMap 주입 방식별 차이와 변경이 파드에 반영되는 과정</span><span class="s">주입 방식 다섯 가지를 한 파드에 걸고, 값을 바꿨을 때 각 경로가 언제 새 값을 보이는지 잰 기록.</span></a></li><li><a href="posts/pod-env-injection.html"><span class="m">2026-10-10 · Kubernetes · 트러블슈팅</span><span class="t">kubelet은 env로 envFrom을 덮는다 — 파드 안 키가 ConfigMap과 달랐던 이유를 makeEnvironmentVariables까지 추적</span><span class="s">env가 envFrom을 덮는 지점을, 파드 안 값의 출처부터 거꾸로 추적한 기록.</span></a></li></ul></main>
 <footer>© dhkim1206. 글과 그림의 무단 전재·재배포를 금합니다.</footer>
 </div>
 </body></html>
