@@ -170,7 +170,7 @@ figure.fig.expanded .figscroll svg{width:auto; min-width:1400px !important}
 <ul>
   <li>Kafka에서 메시지를 받아 처리하는 컨슈머 서비스의 설정을 바꿀 때, 조치 절차에 ConfigMap 수정 뒤 <code>kubectl rollout restart</code>를 함께 넣어야 했습니다. 이 서비스는 설정을 <code>envFrom</code>으로 받습니다.</li>
   <li>같은 이름의 환경변수를 Helm 차트 템플릿과 values가 둘 다 만들어, Git의 매니페스트와 클러스터 상태를 맞추는 ArgoCD가 두 상태를 비교하지 못했다는 <code>ComparisonError</code>로 5번 재시도한 끝에 sync를 멈췄습니다.</li>
-  <li>ConfigMap에 든 S3 접속 키는 맞는데 Secret을 가리키는 deployment의 <code>env</code>가 그 값을 덮어, 파드가 다른 접속 키를 쓰고 있었습니다(<a href="pod-env-injection.html">지난 글</a>).</li>
+  <li>ConfigMap에 든 S3 접속 키는 맞는데 Secret을 가리키는 deployment의 <code>env</code>가 그 값을 덮어, 파드가 다른 접속 키를 쓰고 있었습니다.</li>
 </ul>
 <p>세 번 모두 ConfigMap 자체는 맞았고, 달랐던 것은 그 값을 파드에 넣은 방식이었습니다. ConfigMap을 고치고 GitOps 도구가 <code>Synced</code>를 보여 줘도, 넣은 방식에 따라 파드는 옛 값을 계속 쓸 수 있습니다. ConfigMap을 고친 뒤 파드가 새 값을 쓰는지 어떻게 확인하고 계신가요?</p>
 <p>ConfigMap 값을 파드에 넣는 방식은 다섯 가지이고, 방식마다 반영 시점과 이름이 겹쳤을 때의 동작이 다릅니다.</p>
