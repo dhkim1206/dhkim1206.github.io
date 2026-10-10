@@ -3,7 +3,7 @@
 <title>kubelet의 ConfigMap 반영 시점</title>
 <meta name="description" content="같은 ConfigMap 키를 env·envFrom·볼륨·items·subPath 다섯 경로로 넣고 값을 바꿔 반영 시점을 쟀다. 볼륨 전체·items만 64~71초 뒤 바뀌었고 나머지는 재시작해야 바뀌었다. 같은 이름 env, 환경변수 키 이름 규칙, immutable도 다룬다.">
 <meta property="og:type" content="article">
-<meta property="og:title" content="kubelet은 ConfigMap 변경을 언제 파드에 넣는가 — syncFrequency·Watch 캐시와 컨테이너 시작 시점으로 따라간 다섯 가지 주입 경로">
+<meta property="og:title" content="kubelet은 ConfigMap 변경을 언제 파드에 넣는가">
 <meta property="og:description" content="ConfigMap 주입 방식 다섯 가지를 kind 클러스터에서 실측 비교한 기록.">
 <meta name="author" content="dhkim1206">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -152,7 +152,7 @@ figure.fig.expanded .figscroll svg{width:auto; min-width:1400px !important}
 </head><body>
 <div class="wrap">
 <header class="top col">
-  <h1>kubelet은 ConfigMap 변경을 언제 파드에 넣는가 — syncFrequency·Watch 캐시와 컨테이너 시작 시점으로 따라간 다섯 가지 주입 경로</h1>
+  <h1>kubelet은 ConfigMap 변경을 언제 파드에 넣는가</h1>
   <p class="lede">env·envFrom·볼륨·items·subPath 다섯 주입 방식의 반영 시점과 이름 중복·키 이름·immutable 동작을 실측한 기록입니다.</p>
 </header>
 </div>
