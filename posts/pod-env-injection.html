@@ -226,8 +226,9 @@ LOG_LEVEL=&lt;ConfigMap 값&gt;                    <span class="c">← envFrom</
 
 <section class="col" id="s4">
 <h2>ConfigMap·Secret·파드 안 값을 해시로 비교한다</h2>
-<p>키 값을 화면에 띄우면 기록에 남으므로, ConfigMap·Secret·파드 안 세 곳의 값을 같은 방식으로 꺼내 해시로 비교했습니다(<code>tr -d '\n'</code>은 값 끝 개행 때문에 해시가 달라지는 것을 막습니다).</p>
-<pre class="snip">NS=&lt;namespace&gt;
+<p>키 값을 화면에 띄우면 기록에 남으므로, ConfigMap·Secret·파드 안 세 곳의 값을 같은 방식으로 꺼내 해시로 비교했습니다.</p>
+<pre class="snip"><span class="c"># printenv는 끝에 개행을 붙이고 jsonpath는 붙이지 않아, 세 값 모두 개행을 지운 뒤 해시</span>
+NS=&lt;namespace&gt;
 P=$(kubectl -n $NS get pod -o name | grep postprocessing | head -1)
 <span class="c"># ① ConfigMap 값</span>
 kubectl -n $NS get cm app-postprocessing-config -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | tr -d '\n' | sha256sum | cut -c1-8
