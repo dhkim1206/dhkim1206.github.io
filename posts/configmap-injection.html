@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ConfigMap 주입 방식 비교</title>
+<meta name="description" content="같은 ConfigMap 키를 env·envFrom·볼륨·items·subPath 다섯 경로로 넣고 값을 바꿔 반영 시점을 쟀다. 볼륨 전체·items만 64~71초 뒤 바뀌었고 나머지는 재시작해야 바뀌었다. 같은 이름 env, 환경변수 키 이름 규칙, immutable도 다룬다.">
+<meta property="og:type" content="article">
+<meta property="og:title" content="ConfigMap을 바꿨을 때 재시작 없이 반영된 건 볼륨 전체·items 마운트뿐이었다">
+<meta property="og:description" content="ConfigMap 주입 방식 다섯 가지를 kind 클러스터에서 실측 비교한 기록.">
+<meta name="author" content="dhkim1206">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>/* 레이아웃: 780px 본문 칼럼 + 그림은 칼럼보다 넓게(최대 1120px). 색·그림 토큰은 mDaq 온보딩 문서와 통일 */
+:root{
+  --bg:#F3F5F6; --surface:#FFFFFF; --surface-2:#F8FAFB; --ink:#16222B; --muted:#5A6A74; --faint:#8795A0;
+  --line:#D5DDE2; --line-2:#E6ECEF; --edge:#3E4C56; --edge-ink:#2B3740;
+  --cyc:#2F63C9; --cyc-t:#E4ECFA; --ua:#2A8158; --ua-t:#E0F1E7;
+  --infra:#5F6F7C; --infra-t:#ECEFF2; --ext:#8A97A0; --gap:#D0402F; --gap-t:#FDECEA; --amber:#A86A12; --amber-t:#FBF0DC;
+  --accent:#1F5F8B; --focus:#1F5F8B;
+  --font-sans:"IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0E1418; --surface:#151D23; --surface-2:#19232A; --ink:#E2E9ED; --muted:#98A8B2; --faint:#6F808B;
+    --line:#2C3942; --line-2:#222E36; --edge:#AFBCC5; --edge-ink:#D3DCE2;
+    --cyc:#79A2F2; --cyc-t:#17253C; --ua:#63C595; --ua-t:#12291F;
+    --infra:#9AA8B4; --infra-t:#1D262D; --ext:#7D8C96; --gap:#FF7B69; --gap-t:#3A1C18; --amber:#E0A450; --amber-t:#33260F;
+    --accent:#7FB6DF; --focus:#7FB6DF;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0E1418; --surface:#151D23; --surface-2:#19232A; --ink:#E2E9ED; --muted:#98A8B2; --faint:#6F808B;
+  --line:#2C3942; --line-2:#222E36; --edge:#AFBCC5; --edge-ink:#D3DCE2;
+  --cyc:#79A2F2; --cyc-t:#17253C; --ua:#63C595; --ua-t:#12291F;
+  --infra:#9AA8B4; --infra-t:#1D262D; --ext:#7D8C96; --gap:#FF7B69; --gap-t:#3A1C18; --amber:#E0A450; --amber-t:#33260F;
+  --accent:#7FB6DF; --focus:#7FB6DF;
+}
+*{box-sizing:border-box}
+body{background:var(--bg); color:var(--ink); font-family:var(--font-sans); font-size:16px; line-height:1.75; padding-inline:16px; padding-block:0 72px; margin:0}
+.wrap{max-width:1120px; margin:0 auto}
+.col{max-width:760px; margin-inline:auto}
+a{color:var(--accent)}
+code{font-family:var(--font-mono); font-size:.86em; background:var(--surface-2); border:1px solid var(--line-2); border-radius:4px; padding:0 .3em; overflow-wrap:anywhere}
+h1,h2,h3{text-wrap:balance; line-height:1.3; margin:0}
+h1{font-size:clamp(26px,3.6vw,36px); font-weight:700; letter-spacing:-.015em}
+h2{font-size:23px; font-weight:700; margin-top:56px; margin-bottom:12px; scroll-margin-top:64px}
+h3{font-size:17px; font-weight:600; margin-top:30px; margin-bottom:6px}
+p{margin:.75em 0}
+ul,ol{padding-left:1.3em} li{margin:.3em 0}
+.eyebrow{font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); font-weight:600}
+header.top{padding-block:44px 18px; display:grid; gap:12px}
+.lede{font-size:18px; color:var(--muted)}
+.meta{display:flex; flex-wrap:wrap; gap:8px; font-size:13px; color:var(--muted)}
+.chip{display:inline-flex; align-items:center; gap:6px; font-size:12.5px; padding:2px 10px; border-radius:999px; border:1px solid var(--line); background:var(--surface); white-space:nowrap}
+nav.toc{position:sticky; top:env(safe-area-inset-top,0px); z-index:5; background:color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter:blur(6px); border-bottom:1px solid var(--line); margin-inline:-16px; padding-inline:16px}
+nav.toc .in{max-width:1120px; margin:0 auto; display:flex; gap:4px; overflow-x:auto; padding-block:8px; scrollbar-width:thin}
+nav.toc a{flex:none; text-decoration:none; color:var(--muted); font-size:13px; padding:4px 10px; border-radius:6px}
+nav.toc a:hover, nav.toc a:focus-visible{background:var(--surface); color:var(--ink)}
+/* 확인한 네 곳 */
+.checks{display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin:14px 0}
+.check{background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--cyc); border-radius:8px; padding:10px 12px; font-size:14px; line-height:1.5; min-width:0}
+.check b{display:block; font-size:12px; color:var(--cyc); letter-spacing:.02em}
+.verdict{display:flex; flex-wrap:wrap; gap:10px; align-items:stretch; margin:14px 0}
+.verdict > div{flex:1 1 220px; border-radius:8px; padding:10px 14px; font-size:14.5px; line-height:1.55; min-width:0}
+.verdict .exp{background:var(--surface); border:1px solid var(--line)}
+.verdict .act{background:var(--gap-t); border:1px solid var(--gap)}
+.verdict b{display:block; font-size:12px; letter-spacing:.04em; color:var(--muted)}
+.verdict .act b{color:var(--gap)}
+/* 해시 비교 */
+.hashes{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:14px 0}
+.hash{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 14px; display:grid; gap:2px; min-width:0}
+.hash .k{font-size:12.5px; color:var(--muted)}
+.hash .v{font-family:var(--font-mono); font-size:22px; font-weight:500; font-variant-numeric:tabular-nums; letter-spacing:.02em}
+.hash.cm{border-top:3px solid var(--cyc)} .hash.cm .v{color:var(--cyc)}
+.hash.sec{border-top:3px solid var(--amber)} .hash.sec .v{color:var(--amber)}
+.hash.pod{border-top:3px solid var(--gap)} .hash.pod .v{color:var(--gap)}
+.hash .eq{font-size:12.5px; font-weight:600; color:var(--gap)}
+pre.snip{background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow-x:auto; font-family:var(--font-mono); font-size:13px; line-height:1.6; margin:12px 0}
+pre.snip .c{color:var(--faint)}
+.tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:10px; background:var(--surface); margin:12px 0}
+table.t{border-collapse:collapse; width:100%; font-size:14px}
+table.t th{background:var(--surface-2); text-align:left; font-weight:600; font-size:13px; color:var(--muted); padding:8px 12px; border-bottom:1px solid var(--line)}
+table.t td{padding:8px 12px; border-bottom:1px solid var(--line-2); vertical-align:top}
+table.t tr:last-child td{border-bottom:0}
+table.t td.hot{color:var(--gap); font-weight:600}
+blockquote{margin:12px 0; padding:8px 14px; border-left:3px solid var(--line); color:var(--muted); font-size:14.5px}
+.callout{border-left:3px solid var(--amber); background:var(--amber-t); padding:10px 14px; border-radius:0 8px 8px 0; font-size:15px; margin:14px 0}
+.callout.gap{border-color:var(--gap); background:var(--gap-t)}
+ol.chain{counter-reset:c; list-style:none; padding:0; display:grid; gap:8px; margin:14px 0}
+ol.chain li{counter-increment:c; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 14px 10px 46px; position:relative; margin:0}
+ol.chain li::before{content:counter(c); position:absolute; left:14px; top:10px; width:22px; height:22px; border-radius:50%; background:var(--gap-t); color:var(--gap); font-size:12.5px; font-weight:700; display:grid; place-items:center}
+.closing{font-size:19px; font-weight:600; margin:18px 0}
+.legend{display:flex; flex-wrap:wrap; gap:10px 18px; font-size:13px; color:var(--muted); align-items:center; margin:8px 0 0}
+.legend span{display:inline-flex; align-items:center; gap:6px}
+.sw{width:22px; height:14px; border-radius:4px; border:1.4px solid; display:inline-block}
+.sw.cyc{background:var(--cyc-t); border-color:var(--cyc)} .sw.amber{background:var(--amber-t); border-color:var(--amber)}
+.sw.infra{background:var(--infra-t); border-color:var(--infra)} .sw.ua{background:var(--ua-t); border-color:var(--ua)}
+.sw.gap{background:var(--gap-t); border-color:var(--gap); border-style:dashed} .sw.ext{background:none; border-color:var(--ext); border-style:dashed}
+.ln{width:26px; height:0; border-top:1.6px solid var(--edge); display:inline-block}
+.ln.dash{border-top-style:dashed} .ln.gap{border-top:1.8px dashed var(--gap)}
+footer{margin-top:56px; padding-top:16px; border-top:1px solid var(--line); color:var(--muted); font-size:13.5px}
+footer ul{padding-left:1.1em}
+/* figures */
+figure.fig{margin:22px 0 10px; background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow:hidden}
+.figbar{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:10px 14px; border-bottom:1px solid var(--line-2)}
+.figbar h3{font-size:15px; margin:0}
+.figbar .acts{display:flex; gap:6px}
+button.btn{font:inherit; font-size:12.5px; padding:4px 10px; border-radius:6px; border:1px solid var(--line); background:var(--surface-2); color:var(--ink); cursor:pointer}
+button.btn:hover{border-color:var(--faint)}
+button.btn:focus-visible, .n:focus-visible{outline:2px solid var(--focus); outline-offset:2px}
+.figscroll{overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch}
+.figscroll svg{display:block; width:100%; height:auto}
+figcaption{padding:10px 16px 14px; color:var(--muted); font-size:13.5px; line-height:1.6; border-top:1px solid var(--line-2)}
+figure.fig.expanded{position:fixed; inset:0; z-index:50; margin:0; border-radius:0; display:flex; flex-direction:column}
+figure.fig.expanded .figscroll{flex:1; overflow:auto}
+figure.fig.expanded .figscroll svg{width:auto; min-width:1400px !important}
+.dg .bg{fill:var(--surface)}
+.dg text{font-family:var(--font-sans)}
+.dg .t-title{fill:var(--ink); font-size:12.5px; font-weight:600}
+.dg .t-title.mono{font-family:var(--font-mono); font-size:11.5px}
+.dg .t-sub{fill:var(--muted); font-size:10.5px}
+.dg .t-field{fill:var(--ink); font-family:var(--font-mono); font-size:10.5px}
+.dg .t-field.hot{fill:var(--gap); font-family:var(--font-sans); font-weight:600}
+.dg .shape{stroke-width:1.3}
+.dg .n-cyc .shape{fill:var(--cyc-t); stroke:var(--cyc)}
+.dg .n-ua .shape{fill:var(--ua-t); stroke:var(--ua)}
+.dg .n-infra .shape{fill:var(--infra-t); stroke:var(--infra)}
+.dg .n-amber .shape{fill:var(--amber-t); stroke:var(--amber)}
+.dg .k-ext .shape{fill:var(--surface); stroke:var(--ext); stroke-dasharray:5 4}
+.dg .k-gap .shape{fill:var(--gap-t); stroke:var(--gap); stroke-dasharray:6 4}
+.dg .k-note .shape{fill:var(--surface-2); stroke:var(--line)}
+.dg .k-note .t-title{fill:var(--muted)}
+.dg .grp rect{fill-opacity:.38; stroke-opacity:.55; stroke-dasharray:4 4; stroke-width:1.2}
+.dg .g-infra rect{fill:var(--infra-t); stroke:var(--infra)} .dg .g-infra .g-title{fill:var(--infra)}
+.dg .g-gap rect{fill:var(--gap-t); stroke:var(--gap)} .dg .g-gap .g-title{fill:var(--gap)}
+.dg .g-ua rect{fill:var(--ua-t); stroke:var(--ua)} .dg .g-ua .g-title{fill:var(--ua)}
+.dg .g-title{fill:var(--muted); font-size:12px; font-weight:700; letter-spacing:.01em}
+.dg .e polyline{fill:none; stroke:var(--edge); stroke-width:1.4}
+.dg .e-dash polyline{stroke-dasharray:5 4}
+.dg .e-gap polyline{stroke:var(--gap); stroke-dasharray:6 4; stroke-width:1.6}
+.dg .mk{fill:var(--edge)} .dg .mk-gap{fill:var(--gap)}
+.dg .lb{fill:var(--surface)}
+.dg .lt{fill:var(--edge-ink); font-size:10.5px}
+.dg .e-gap .lt{fill:var(--gap); font-weight:600}
+.dg .n{transition:opacity .15s; cursor:pointer} .dg .e{transition:opacity .15s}
+.dg.focus .e:not(.hot){opacity:.12} .dg.focus .n:not(.hot){opacity:.3} .dg.focus .grp{opacity:.6}
+@media (prefers-reduced-motion: reduce){ .dg .n,.dg .e{transition:none} }
+@media (max-width:640px){ body{font-size:15px} h2{font-size:20px} .lede{font-size:16px} .hash .v{font-size:19px} }
+</style>
+</head><body>
+<div class="wrap">
+<header class="top col">
+  <h1>ConfigMap을 바꿨을 때 재시작 없이 반영된 건 볼륨 전체·items 마운트뿐이었다</h1>
+  <p class="lede">env·envFrom·볼륨·items·subPath 다섯 주입 방식의 반영 시점과 이름 중복·키 이름·immutable 동작을 실측한 기록입니다.</p>
+</header>
+</div>
+
+<nav class="toc" aria-label="목차"><div class="in">
+  <a href="#s1">ConfigMap은 맞았던 사례</a><a href="#s2">다섯 경로 구성</a><a href="#s3">볼륨·items만 자동 반영</a><a href="#s4">rollout restart</a>
+  <a href="#s5">env 이름 중복</a><a href="#s6">1key 환경변수</a><a href="#s7">immutable</a><a href="#s8">방식별 판정</a><a href="#s9">확인하지 못한 것</a><a href="#s10">맺음말</a>
+</div></nav>
+
+<main class="wrap">
+
+<section class="col" id="s1">
+<h2>ConfigMap은 맞았는데 파드에 넣는 방식 때문에 세 번 문제를 겪었다</h2>
+<p>데이터 파이프라인을 운영하면서 겪은 세 사례입니다.</p>
+<ul>
+  <li>Kafka에서 메시지를 받아 처리하는 컨슈머 서비스의 설정을 바꿀 때, 조치 절차에 ConfigMap 수정 뒤 <code>kubectl rollout restart</code>를 함께 넣어야 했습니다. 이 서비스는 설정을 <code>envFrom</code>으로 받습니다.</li>
+  <li>같은 이름의 환경변수를 Helm 차트 템플릿과 values가 둘 다 만들어, Git의 매니페스트와 클러스터 상태를 맞추는 ArgoCD가 두 상태를 비교하지 못했다는 <code>ComparisonError</code>로 5번 재시도한 끝에 sync를 멈췄습니다.</li>
+  <li>ConfigMap에 든 S3 접속 키는 맞는데 Secret을 가리키는 deployment의 <code>env</code>가 그 값을 덮어, 파드가 다른 접속 키를 쓰고 있었습니다(<a href="pod-env-injection.html">지난 글</a>).</li>
+</ul>
+<p>세 번 모두 ConfigMap 자체는 맞았고, 달랐던 것은 그 값을 파드에 넣은 방식이었습니다. ConfigMap을 고치고 GitOps 도구가 <code>Synced</code>를 보여 줘도, 넣은 방식에 따라 파드는 옛 값을 계속 쓸 수 있습니다. ConfigMap을 고친 뒤 파드가 새 값을 쓰는지 어떻게 확인하고 계신가요?</p>
+<p>ConfigMap 값을 파드에 넣는 방식은 다섯 가지이고, 방식마다 반영 시점과 이름이 겹쳤을 때의 동작이 다릅니다.</p>
+</section>
+
+<section id="s2">
+<div class="col">
+<h2>같은 키를 env·envFrom·볼륨·items·subPath 다섯 경로로 한 파드에 넣었다</h2>
+<p>Docker 컨테이너를 노드로 쓰는 로컬 클러스터 도구 kind로 Kubernetes v1.37 클러스터를 띄우고, ConfigMap <code>app-config</code>(키 <code>GREETING</code>)의 키를 다섯 경로로 한 컨테이너에 넣었습니다.</p>
+<pre class="snip">containers:
+  - name: probe
+    image: busybox:1.36
+    env:
+      - name: GREETING_ENV                 <span class="c"># ① env — 키 하나를 이름을 정해 환경변수로</span>
+        valueFrom:
+          configMapKeyRef: {name: app-config, key: GREETING}
+    envFrom:
+      - configMapRef: {name: app-config}   <span class="c"># ② envFrom — 키 전부를 이름 그대로 환경변수로</span>
+    volumeMounts:
+      - {name: full,  mountPath: /cfg-full}                              <span class="c"># ③ 볼륨 전체 — 키마다 파일 하나</span>
+      - {name: items, mountPath: /cfg-items}                             <span class="c"># ④ 볼륨 items — 고른 키만 지정한 파일명으로</span>
+      - {name: full,  mountPath: /cfg-sub/greeting, subPath: GREETING}   <span class="c"># ⑤ subPath — 파일 하나를 특정 경로에</span>
+volumes:
+  - name: full
+    configMap: {name: app-config}
+  - name: items
+    configMap:
+      name: app-config
+      items: [{key: GREETING, path: greeting.txt}]</pre>
+<p>컨테이너는 1초마다 다섯 경로의 값을 한 줄로 찍습니다. 처음에는 다섯 경로 모두 <code>v1</code>이었습니다.</p>
+<pre class="snip">1791651653 env=v1 envfrom=v1 full=v1 items=v1 subpath=v1</pre>
+</div>
+<figure class="fig" id="f-f1"><div class="figbar"><h3>ConfigMap 키 하나를 다섯 경로로 넣었을 때 값이 바뀌는 시점</h3><div class="acts"><button class="btn" type="button" data-expand>크게 보기</button></div></div><div class="figscroll"><svg class="dg" id="f1" viewBox="0 0 812 440" role="img" aria-label="ConfigMap app-config의 GREETING 키를 env, envFrom, 볼륨 전체, 볼륨 items, subPath 다섯 경로로 한 컨테이너에 넣었다. 볼륨 전체와 items는 ConfigMap을 바꾼 뒤 64~71초에 새 값이 됐고, env·envFrom·subPath는 컨테이너를 다시 시작해야 바뀌었다" style="min-width:812px;max-width:812px;margin-inline:auto" xmlns="http://www.w3.org/2000/svg"><defs><marker id="f1-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker><marker id="f1-ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-gap"/></marker></defs><rect class="bg" x="0" y="0" width="812" height="440"/><g class="grp g-infra"><rect x="280" y="14" width="508" height="402" rx="12"/><text class="g-title" x="776" y="32" text-anchor="end">컨테이너 probe</text></g><g class="e e-solid" data-s="CM" data-t="P1"><polyline points="234.0,221.0 264.0,221.0 264.0,69.0 294.0,69.0" marker-end="url(#f1-a)"/></g><g class="e e-solid" data-s="CM" data-t="P2"><polyline points="234.0,221.0 264.0,221.0 264.0,145.0 294.0,145.0" marker-end="url(#f1-a)"/></g><g class="e e-solid" data-s="CM" data-t="P3"><polyline points="234.0,221.0 294.0,221.0" marker-end="url(#f1-a)"/></g><g class="e e-solid" data-s="CM" data-t="P4"><polyline points="234.0,221.0 264.0,221.0 264.0,297.0 294.0,297.0" marker-end="url(#f1-a)"/></g><g class="e e-solid" data-s="CM" data-t="P5"><polyline points="234.0,221.0 264.0,221.0 264.0,373.0 294.0,373.0" marker-end="url(#f1-a)"/></g><g class="e e-dash" data-s="P1" data-t="R1"><polyline points="504.0,69.0 564.0,69.0" marker-end="url(#f1-a)"/></g><g class="e e-dash" data-s="P2" data-t="R2"><polyline points="504.0,145.0 564.0,145.0" marker-end="url(#f1-a)"/></g><g class="e e-solid" data-s="P3" data-t="R3"><polyline points="504.0,221.0 564.0,221.0" marker-end="url(#f1-a)"/></g><g class="e e-solid" data-s="P4" data-t="R4"><polyline points="504.0,297.0 564.0,297.0" marker-end="url(#f1-a)"/></g><g class="e e-dash" data-s="P5" data-t="R5"><polyline points="504.0,373.0 564.0,373.0" marker-end="url(#f1-a)"/></g><g class="n n-cyc k-svc" data-id="CM" tabindex="0"><rect class="shape" x="24" y="192" width="210" height="58" rx="8"/><text class="t-title" x="129.0" y="217.5" text-anchor="middle">ConfigMap app-config</text><text class="t-field" x="129.0" y="232.5" text-anchor="middle">GREETING: v1→v2→v3→v4</text></g><g class="n n-amber k-svc" data-id="P1" tabindex="0"><rect class="shape" x="294" y="40" width="210" height="58" rx="8"/><text class="t-title" x="399.0" y="65.5" text-anchor="middle">① env</text><text class="t-field" x="399.0" y="80.5" text-anchor="middle">configMapKeyRef</text></g><g class="n n-amber k-svc" data-id="P2" tabindex="0"><rect class="shape" x="294" y="116" width="210" height="58" rx="8"/><text class="t-title" x="399.0" y="141.5" text-anchor="middle">② envFrom</text><text class="t-field" x="399.0" y="156.5" text-anchor="middle">configMapRef</text></g><g class="n n-ua k-svc" data-id="P3" tabindex="0"><rect class="shape" x="294" y="192" width="210" height="58" rx="8"/><text class="t-title" x="399.0" y="217.5" text-anchor="middle">③ 볼륨 전체</text><text class="t-sub" x="399.0" y="232.5" text-anchor="middle">키마다 파일 하나</text></g><g class="n n-ua k-svc" data-id="P4" tabindex="0"><rect class="shape" x="294" y="268" width="210" height="58" rx="8"/><text class="t-title" x="399.0" y="293.5" text-anchor="middle">④ 볼륨 items</text><text class="t-sub" x="399.0" y="308.5" text-anchor="middle">고른 키만 지정한 파일명</text></g><g class="n n-amber k-svc" data-id="P5" tabindex="0"><rect class="shape" x="294" y="344" width="210" height="58" rx="8"/><text class="t-title" x="399.0" y="369.5" text-anchor="middle">⑤ subPath</text><text class="t-sub" x="399.0" y="384.5" text-anchor="middle">파일 하나를 특정 경로에</text></g><g class="n n-amber k-svc" data-id="R1" tabindex="0"><rect class="shape" x="564" y="40" width="210" height="58" rx="8"/><text class="t-title" x="669.0" y="65.5" text-anchor="middle">재시작해야 반영</text><text class="t-sub" x="669.0" y="80.5" text-anchor="middle">150초 동안 v1 그대로 (실측)</text></g><g class="n n-amber k-svc" data-id="R2" tabindex="0"><rect class="shape" x="564" y="116" width="210" height="58" rx="8"/><text class="t-title" x="669.0" y="141.5" text-anchor="middle">재시작해야 반영</text><text class="t-sub" x="669.0" y="156.5" text-anchor="middle">150초 동안 v1 그대로 (실측)</text></g><g class="n n-ua k-svc" data-id="R3" tabindex="0"><rect class="shape" x="564" y="192" width="210" height="58" rx="8"/><text class="t-title" x="669.0" y="217.5" text-anchor="middle">64~71초 뒤 새 값</text><text class="t-sub" x="669.0" y="232.5" text-anchor="middle">3회 측정 (실측)</text></g><g class="n n-ua k-svc" data-id="R4" tabindex="0"><rect class="shape" x="564" y="268" width="210" height="58" rx="8"/><text class="t-title" x="669.0" y="293.5" text-anchor="middle">64~71초 뒤 새 값</text><text class="t-sub" x="669.0" y="308.5" text-anchor="middle">3회 측정 (실측)</text></g><g class="n n-amber k-svc" data-id="R5" tabindex="0"><rect class="shape" x="564" y="344" width="210" height="58" rx="8"/><text class="t-title" x="669.0" y="369.5" text-anchor="middle">재시작해야 반영</text><text class="t-sub" x="669.0" y="384.5" text-anchor="middle">150초 동안 v1 그대로 (실측)</text></g></svg></div><figcaption>초록은 ConfigMap을 바꾸면 재시작 없이 바뀐 경로, 주황은 컨테이너를 다시 시작해야 바뀐 경로입니다. 노드를 누르면 연결된 선만 강조됩니다.</figcaption></figure>
+</section>
+
+<section id="s3">
+<div class="col">
+<h2>볼륨 전체와 items로 넣은 값만 64~71초 뒤 바뀌었고, env·envFrom·subPath는 150초 동안 그대로였다</h2>
+<p><code>kubectl patch</code>로 <code>GREETING</code>을 바꾼 시각부터 150초 동안 로그를 1초 간격으로 보며, 각 경로가 새 값을 보인 시점을 3회 쟀습니다.</p>
+<div class="tablewrap"><table class="t">
+  <thead><tr><th>변경</th><th>① env</th><th>② envFrom</th><th>③ 볼륨 전체</th><th>④ 볼륨 items</th><th>⑤ subPath</th></tr></thead>
+  <tbody>
+    <tr><td>v1 → v2</td><td class="hot">150초 동안 그대로</td><td class="hot">150초 동안 그대로</td><td>71초</td><td>71초</td><td class="hot">150초 동안 그대로</td></tr>
+    <tr><td>v2 → v3</td><td class="hot">150초 동안 그대로</td><td class="hot">150초 동안 그대로</td><td>68초</td><td>68초</td><td class="hot">150초 동안 그대로</td></tr>
+    <tr><td>v3 → v4</td><td class="hot">150초 동안 그대로</td><td class="hot">150초 동안 그대로</td><td>64초</td><td>64초</td><td class="hot">150초 동안 그대로</td></tr>
+  </tbody>
+</table></div>
+<p>볼륨 쪽은 공식 문서가 설명하는 동작과 같습니다. <a href="https://kubernetes.io/docs/concepts/configuration/configmap/">ConfigMap 문서</a>는 볼륨으로 쓰는 ConfigMap이 바뀌면 파일도 결국 바뀐다고 하면서, 그 지연이 "kubelet sync period + cache propagation delay"까지 걸릴 수 있다고 적습니다. 노드에서 파드를 실행하고 볼륨 파일을 채우는 kubelet의 설정을 꺼내 보니, 동기화 주기(<code>syncFrequency</code>)는 1분이고 캐시는 apiserver의 변경 알림으로 갱신하는 Watch 방식이었습니다. 1분 주기에 전파 지연이 붙어 64~71초가 나온 것으로 봅니다.</p>
+<pre class="snip">kubectl get --raw /api/v1/nodes/&lt;노드 이름&gt;/proxy/configz   <span class="c"># syncFrequency, configMapAndSecretChangeDetectionStrategy 확인</span></pre>
+<p>나머지 셋도 문서에 적힌 그대로입니다. 환경변수로 쓰는 ConfigMap은 "not updated automatically and require a pod restart"이고, subPath로 마운트한 파일은 "will not receive ConfigMap updates"입니다. 환경변수는 컨테이너가 시작할 때 한 번 조립되기 때문입니다. 설정을 <code>envFrom</code>으로 받는 컨슈머 서비스의 조치 절차에 <code>rollout restart</code>가 들어가야 했던 이유가 이것입니다.</p>
+</div>
+<figure class="fig" id="f-f2"><div class="figbar"><h3>ConfigMap 수정이 볼륨 파일과 환경변수·subPath에 반영되는 경로</h3><div class="acts"><button class="btn" type="button" data-expand>크게 보기</button></div></div><div class="figscroll"><svg class="dg" id="f2" viewBox="0 0 1104 276" role="img" aria-label="ConfigMap을 고치면 apiserver에 저장되고 kubelet의 Watch 캐시로 전해진다. 볼륨은 kubelet 동기화(1분 주기)에서 파일이 바뀌어 64~71초 뒤 반영됐다. 환경변수와 subPath는 새 컨테이너가 떠야 바뀐다(롤링 재시작)" style="min-width:960px;max-width:1104px;margin-inline:auto" xmlns="http://www.w3.org/2000/svg"><defs><marker id="f2-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker><marker id="f2-ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-gap"/></marker></defs><rect class="bg" x="0" y="0" width="1104" height="276"/><text class="g-title" x="24" y="36" text-anchor="start">볼륨 ③④</text><text class="g-title" x="24" y="170" text-anchor="start">환경변수 ①② · subPath ⑤</text><g class="e e-solid" data-s="PATCH" data-t="API"><polyline points="200.0,87.0 244.0,87.0" marker-end="url(#f2-a)"/></g><g class="e e-solid" data-s="API" data-t="CACHE"><polyline points="420.0,87.0 464.0,87.0" marker-end="url(#f2-a)"/></g><g class="e e-solid" data-s="CACHE" data-t="SYNC"><polyline points="640.0,87.0 684.0,87.0" marker-end="url(#f2-a)"/></g><g class="e e-solid" data-s="SYNC" data-t="VOL"><polyline points="860.0,87.0 904.0,87.0" marker-end="url(#f2-a)"/></g><g class="e e-solid" data-s="RESTART" data-t="START"><polyline points="420.0,221.0 684.0,221.0" marker-end="url(#f2-a)"/><rect class="lb" x="528.3" y="212.0" width="47.4" height="18" rx="3"/><text class="lt" x="552.0" y="224.6" text-anchor="middle">새 파드</text></g><g class="e e-solid" data-s="START" data-t="ENVP"><polyline points="860.0,221.0 904.0,221.0" marker-end="url(#f2-a)"/></g><g class="e e-dash" data-s="CACHE" data-t="START"><polyline points="640.0,87.0 662.0,87.0 662.0,221.0 684.0,221.0" marker-end="url(#f2-a)"/><rect class="lb" x="592.7" y="145.0" width="138.5" height="18" rx="3"/><text class="lt" x="662.0" y="157.6" text-anchor="middle">시작할 때 읽음(환경변수)</text></g><g class="n n-note k-note" data-id="PATCH" tabindex="0"><rect class="shape" x="24" y="56" width="176" height="62" rx="8"/><text class="t-title" x="112.0" y="83.5" text-anchor="middle">kubectl patch</text><text class="t-sub" x="112.0" y="98.5" text-anchor="middle">ConfigMap 값 수정</text></g><g class="n n-infra k-svc" data-id="API" tabindex="0"><rect class="shape" x="244" y="56" width="176" height="62" rx="8"/><text class="t-title" x="332.0" y="83.5" text-anchor="middle">apiserver</text><text class="t-sub" x="332.0" y="98.5" text-anchor="middle">ConfigMap 저장</text></g><g class="n n-infra k-svc" data-id="CACHE" tabindex="0"><rect class="shape" x="464" y="56" width="176" height="62" rx="8"/><text class="t-title" x="552.0" y="83.5" text-anchor="middle">kubelet 캐시</text><text class="t-sub" x="552.0" y="98.5" text-anchor="middle">Watch 방식 (실측)</text></g><g class="n n-infra k-svc" data-id="SYNC" tabindex="0"><rect class="shape" x="684" y="56" width="176" height="62" rx="8"/><text class="t-title" x="772.0" y="83.5" text-anchor="middle">kubelet 동기화</text><text class="t-field" x="772.0" y="98.5" text-anchor="middle">syncFrequency 1m (실측)</text></g><g class="n n-ua k-svc" data-id="VOL" tabindex="0"><rect class="shape" x="904" y="56" width="176" height="62" rx="8"/><text class="t-title" x="992.0" y="83.5" text-anchor="middle">볼륨 파일 갱신</text><text class="t-sub" x="992.0" y="98.5" text-anchor="middle">64~71초 뒤 (실측)</text></g><g class="n n-note k-note" data-id="RESTART" tabindex="0"><rect class="shape" x="244" y="190" width="176" height="62" rx="8"/><text class="t-title" x="332.0" y="217.5" text-anchor="middle">롤링 재시작</text><text class="t-sub" x="332.0" y="232.5" text-anchor="middle">restart·템플릿 변경 시</text></g><g class="n n-infra k-svc" data-id="START" tabindex="0"><rect class="shape" x="684" y="190" width="176" height="62" rx="8"/><text class="t-title" x="772.0" y="217.5" text-anchor="middle">새 컨테이너 시작</text><text class="t-sub" x="772.0" y="232.5" text-anchor="middle">env 조립 · subPath 마운트</text></g><g class="n n-amber k-svc" data-id="ENVP" tabindex="0"><rect class="shape" x="904" y="190" width="176" height="62" rx="8"/><text class="t-title" x="992.0" y="217.5" text-anchor="middle">①②⑤ 새 값</text><text class="t-sub" x="992.0" y="232.5" text-anchor="middle">재시작 뒤 반영 (실측)</text></g></svg></div><figcaption>subPath가 아닌 볼륨만 kubelet 동기화 주기마다 새 값으로 바뀝니다(공식 문서). ConfigMap만 바뀌면 deployment의 파드 템플릿은 그대로라 롤링 재시작이 저절로 일어나지 않습니다.</figcaption></figure>
+<div class="col">
+<p>볼륨 파일이 바뀌어도 애플리케이션이 그 파일을 다시 읽어야 동작이 바뀝니다. 시작할 때 한 번만 설정 파일을 읽는 애플리케이션이라면 볼륨으로 넣어도 재시작해야 합니다.</p>
+</div>
+</section>
+
+<section class="col" id="s4">
+<h2>rollout restart 후에는 다섯 경로 모두 새 값이 됐다</h2>
+<p><code>kubectl rollout restart deploy/probe</code>로 파드를 새로 띄우자, 새 파드에서는 다섯 경로 모두 마지막 값 <code>v4</code>를 보였습니다.</p>
+<pre class="snip">1791654384 env=v4 envfrom=v4 full=v4 items=v4 subpath=v4</pre>
+<p>새 컨테이너가 시작하면서 환경변수를 다시 조립하기 때문입니다. subPath는 공식 문서대로 새 컨테이너에서만 새 값을 보였습니다. 그런데 ConfigMap만 바뀌면 deployment의 파드 템플릿은 그대로라 롤링 재시작이 저절로 일어나지 않습니다. GitOps 도구의 <code>Synced</code>만 보고 확인을 끝내면 안 되는 이유가 이것입니다.</p>
+<p><a href="https://helm.sh/docs/howto/charts_tips_and_tricks/">Helm 공식 문서</a>는 이 문제를 위해 파드 템플릿 annotation에 ConfigMap 내용의 해시(<code>checksum/config</code>)를 넣는 방법을 안내합니다. ConfigMap 값이 바뀌면 해시가 바뀌고, 파드 템플릿이 바뀌었으니 deployment가 롤링을 합니다(이 방법은 이번 실험에서 재현하지 않았습니다).</p>
+<pre class="snip">spec:
+  template:
+    metadata:
+      annotations:
+        checksum/config: &#123;&#123; include (print $.Template.BasePath "/configmap.yaml") . | sha256sum &#125;&#125;</pre>
+</section>
+
+<section class="col" id="s5">
+<h2>같은 이름의 env는 뒤 항목 값이 들어가고, server-side apply는 거부한다</h2>
+<p><code>env</code>에 같은 이름 <code>DUP</code>를 두 번 넣었습니다. 첫 항목은 직접 값, 둘째 항목은 ConfigMap 키입니다.</p>
+<pre class="snip">env:
+  - name: DUP
+    value: from-value
+  - name: DUP
+    valueFrom:
+      configMapKeyRef: {name: dup-config, key: DUP}   <span class="c"># ConfigMap 값: from-configmap</span></pre>
+<p>결과는 이렇습니다(실측). 표의 server-side apply는 apiserver가 env 같은 리스트 항목을 name 키로 맞춰 합치는 apply 방식입니다.</p>
+<div class="tablewrap"><table class="t">
+  <thead><tr><th>동작</th><th>결과</th></tr></thead>
+  <tbody>
+    <tr><td><code>kubectl apply</code> (처음)</td><td>경고 <code>env[1]: hides previous definition of "DUP", which may be dropped when using apply</code>와 함께 생성됨</td></tr>
+    <tr><td>파드 안 <code>DUP</code></td><td><code>from-configmap</code> — 뒤 항목의 값</td></tr>
+    <tr><td>첫 항목 값만 바꿔 <code>kubectl apply</code> 다시</td><td>같은 경고와 함께 반영됨</td></tr>
+    <tr><td>같은 변경을 <code>kubectl apply --server-side</code></td><td class="hot"><code>duplicate entries for key [name="DUP"]</code>로 거부</td></tr>
+  </tbody>
+</table></div>
+<p>API 서버는 같은 이름을 막지 않고 경고만 남깁니다. 그래서 차트 템플릿과 values가 같은 이름을 각각 만들어도 <code>kubectl apply</code>로는 경고만 나오고 배포되며, server-side apply와 ArgoCD의 diff 계산에서 실패가 드러납니다. ArgoCD에서 본 <code>ComparisonError</code>가 이 경우였는데, 이번 실험의 일반 <code>kubectl apply</code>로는 그 오류 문구까지 재현되지 않았습니다.</p>
+<p>같은 이름이 겹쳤는지는 배포 전에 server-side dry-run으로 확인할 수 있습니다. 리소스를 만들지 않고 같은 <code>duplicate entries</code> 오류를 돌려줍니다(dry-run 실측).</p>
+<pre class="snip">helm template &lt;릴리스&gt; &lt;차트&gt; -f values.yaml &gt; rendered.yaml
+kubectl apply --server-side --dry-run=server -f rendered.yaml   <span class="c"># 중복이 있으면 env: duplicate entries for key [name="..."]</span></pre>
+</section>
+
+<section class="col" id="s6">
+<h2>숫자로 시작하는 키 1key도 v1.32부터 envFrom 환경변수가 된다</h2>
+<p>ConfigMap에 <code>OK_KEY</code>, <code>my.key</code>, <code>my-key</code>, <code>1key</code> 네 키를 넣고 <code>envFrom</code>으로 넣었더니, 파드 안에 네 키가 모두 환경변수로 있었고 경고 이벤트도 없었습니다.</p>
+<pre class="snip">1key=digit
+OK_KEY=ok
+my-key=dash
+my.key=dot</pre>
+<p>이 중 버전에 따라 달라지는 것은 <code>1key</code> 하나이고, <code>my.key</code>·<code>my-key</code>는 게이트 이전 규칙에서도 허용됐습니다. 기능을 버전별로 켜고 끄는 기능 게이트 <code>RelaxedEnvironmentVariableValidation</code>은 1.30에 Alpha(기본 꺼짐)로 들어와 1.32에 Beta(기본 켜짐), 1.34에 GA가 됐습니다. 이 게이트가 꺼진 클러스터(1.31 이하 기본값)의 kubelet은 이름 규칙(영문자·숫자·<code>_</code>·<code>-</code>·<code>.</code>, 숫자로 시작하지 않음)에 맞지 않는 키를 건너뛰고 <code>InvalidEnvironmentVariableNames</code> 경고 이벤트를 남깁니다(kubelet 소스 기준, 재현하지 않았습니다).</p>
+<p>환경변수가 됐다고 어디서나 쓸 수 있는 것은 아닙니다. 셸 변수 이름 규칙에 맞지 않아 셸 스크립트에서는 <code>$my.key</code>처럼 참조할 수 없고, 애플리케이션이 프로세스 환경을 이름으로 직접 읽을 때만 쓸 수 있습니다.</p>
+</section>
+
+<section class="col" id="s7">
+<h2>immutable ConfigMap은 수정 자체를 막는다</h2>
+<p><code>immutable: true</code>를 준 ConfigMap의 값을 바꾸려 하면 apiserver가 거부합니다(실측).</p>
+<pre class="snip">The ConfigMap "frozen-config" is invalid: data: Forbidden: field is immutable when `immutable` is set</pre>
+<p>공식 문서에 따르면 immutable은 되돌릴 수 없어, 값을 바꾸려면 ConfigMap을 지우고 다시 만들어야 합니다. 기존 파드는 지운 ConfigMap을 계속 마운트하고 있으므로 파드도 다시 만드는 것이 권장됩니다. 문서는 쓰임새로 실수로 값이 바뀌어 생기는 장애를 막는 것과, immutable ConfigMap의 watch를 닫아 apiserver 부하를 줄이는 것을 듭니다. 값을 바꿔야 할 때는 이름에 버전을 넣은 새 ConfigMap(<code>app-config-v2</code>)을 만들고 deployment가 그 이름을 가리키게 바꾸는 방법이 있습니다.</p>
+</section>
+
+<section class="col" id="s8">
+<h2>방식별 판정과 상황별 선택</h2>
+<div class="tablewrap"><table class="t">
+  <thead><tr><th>방식</th><th>ConfigMap을 바꾸면</th><th>파드 값의 출처 추적</th><th>같은 이름이 겹치면</th></tr></thead>
+  <tbody>
+    <tr><td>① env <code>configMapKeyRef</code></td><td class="hot">150초 내 미반영, 재시작 후 반영 (실측)</td><td>spec에 변수 이름과 키가 1:1로 적혀 있음</td><td>env끼리는 뒤 항목 값이 들어가고 경고, server-side apply는 거부 (실측)</td></tr>
+    <tr><td>② envFrom</td><td class="hot">150초 내 미반영, 재시작 후 반영 (실측)</td><td>spec에는 ConfigMap 이름만 있어 키 목록을 같이 봐야 함</td><td>목록 뒤쪽 소스가 남고(API 설명), 같은 이름의 <code>env</code>에 덮임(지난 글 실측)</td></tr>
+    <tr><td>③ 볼륨 전체</td><td>64~71초 뒤 반영 (실측)</td><td>파일 이름이 키</td><td>키마다 파일이라 겹치지 않음</td></tr>
+    <tr><td>④ 볼륨 items</td><td>64~71초 뒤 반영 (실측)</td><td>지정한 파일 경로</td><td>겹치지 않음</td></tr>
+    <tr><td>⑤ subPath</td><td class="hot">150초 내 미반영, 재시작 후 반영 (실측)</td><td>지정한 파일 하나</td><td>겹치지 않음</td></tr>
+  </tbody>
+</table></div>
+<p>상황별로 고르면 이렇습니다.</p>
+<div class="tablewrap"><table class="t">
+  <thead><tr><th>상황</th><th>맞는 방식</th><th>감수할 것</th></tr></thead>
+  <tbody>
+    <tr><td>값을 바꾸면 재시작 없이 반영돼야 하고, 애플리케이션이 파일을 다시 읽는다</td><td>③ 볼륨 전체 또는 ④ items</td><td>이번 측정 64~71초 지연, 파일을 다시 읽는 코드</td></tr>
+    <tr><td>설정 파일 하나를 정해진 경로에 둬야 한다</td><td>④ items (⑤ subPath 대신)</td><td>디렉터리 단위로 마운트되어 그 디렉터리의 기존 파일이 가려짐</td></tr>
+    <tr><td>값은 시작할 때 한 번만 필요하고, 바꿀 때는 배포로 바꾼다</td><td>① env 또는 ② envFrom + <code>checksum/config</code> annotation</td><td>바뀔 때마다 롤링 재시작</td></tr>
+    <tr><td>파드 값의 출처를 spec만 보고 알아야 한다</td><td>① env</td><td>키마다 한 줄씩 적어야 함</td></tr>
+    <tr><td>값이 바뀌면 안 된다</td><td>immutable + 이름에 버전</td><td>바꿀 때 새 ConfigMap과 deployment 수정</td></tr>
+  </tbody>
+</table></div>
+</section>
+
+<section class="col" id="s9">
+<h2>확인하지 못한 것</h2>
+<ul>
+  <li>애플리케이션이 바뀐 파일을 다시 읽는지는 애플리케이션마다 다릅니다. 이 실험은 매초 <code>cat</code>으로 읽었습니다.</li>
+  <li>1.31 이하 클러스터에서 envFrom이 <code>1key</code> 같은 키를 건너뛰는 동작은 kubelet 소스(release-1.29) 기준이고 재현하지 않았습니다.</li>
+  <li>ArgoCD의 <code>ComparisonError</code> 문구는 일반 <code>kubectl apply</code>로 재현되지 않았습니다.</li>
+  <li>측정은 노드 하나짜리 kind 클러스터에서, 같은 파드로 연속 3회 1초 단위로 했습니다. 노드가 많거나 apiserver 부하가 큰 클러스터에서는 지연 분포가 다를 수 있습니다.</li>
+</ul>
+<p>같은 측정은 위 YAML로 파드를 띄운 뒤 아래 명령으로 재현할 수 있습니다.</p>
+<pre class="snip">kubectl patch configmap app-config --type merge -p '{"data":{"GREETING":"v2"}}'   <span class="c"># 실행 시각부터</span>
+kubectl logs -f deploy/probe                                                         <span class="c"># 각 경로 값이 바뀌는 시각을 본다</span></pre>
+</section>
+
+<section class="col" id="s10">
+<h2>맺음말</h2>
+<p class="closing">ConfigMap을 바꿨을 때 재시작 없이 바뀐 것은 볼륨 전체·items로 넣은 값뿐이었고, 그것도 kubelet 동기화 주기(1분)에 전파 지연을 더한 만큼 늦게 바뀌었습니다(이번 측정 64~71초).</p>
+<p>환경변수와 subPath는 컨테이너가 다시 시작해야 바뀌고, GitOps의 <code>Synced</code>는 ConfigMap이 클러스터에 적용됐다는 것까지만 알려 줍니다. 같은 이름의 환경변수가 겹치면 server-side dry-run이 <code>duplicate entries</code> 오류를 돌려주므로, <code>ComparisonError</code>로 이어진 그 중복도 배포 전에 잡을 수 있었을 것이고, <code>env</code>가 <code>envFrom</code> 값을 덮는 경우는 아래 셋째 확인에서 드러납니다. ConfigMap을 고친 뒤에는 이 순서로 확인합니다.</p>
+<ol>
+  <li>그 값이 어떤 방식으로 파드에 들어가는지 deployment에서 확인합니다.</li>
+  <li>환경변수·subPath라면 롤링 재시작이 일어났는지(파드 생성 시각) 확인합니다.</li>
+  <li>파드 안에서 실제 값을 꺼내 ConfigMap 값과 비교합니다.</li>
+</ol>
+<footer>
+  <b>참고 자료</b>
+  <ul>
+    <li><a href="https://kubernetes.io/docs/concepts/configuration/configmap/">ConfigMaps(볼륨 갱신 지연, 환경변수·subPath 미갱신, immutable) — Kubernetes Documentation</a></li>
+    <li><a href="https://kubernetes.io/docs/concepts/storage/volumes/">Volumes(subPath) — Kubernetes Documentation</a></li>
+    <li><a href="https://helm.sh/docs/howto/charts_tips_and_tricks/">Chart Development Tips and Tricks — Automatically Roll Deployments, Helm Documentation</a></li>
+    <li>RelaxedEnvironmentVariableValidation 기능 게이트 — kubernetes/kubernetes pkg/features/kube_features.go (release-1.34)</li>
+    <li>게이트 이전 환경변수 이름 규칙·envFrom 키 건너뛰기 — kubernetes/kubernetes staging/src/k8s.io/apimachinery/pkg/util/validation/validation.go, pkg/kubelet/kubelet_pods.go (release-1.29)</li>
+  </ul>
+</footer>
+</section>
+
+</main>
+<script>(function(){
+  // 그림: 노드를 가리키거나 누르면 연결된 선·노드만 강조
+  document.querySelectorAll('svg.dg').forEach(function(svg){
+    var edges = Array.prototype.slice.call(svg.querySelectorAll('.e[data-s]'));
+    var nodes = Array.prototype.slice.call(svg.querySelectorAll('.n[data-id]'));
+    if (!edges.length) return;
+    var pinned = null;
+    function on(id){
+      svg.classList.add('focus');
+      var rel = {}; rel[id] = true;
+      edges.forEach(function(e){
+        var hit = e.dataset.s === id || e.dataset.t === id;
+        e.classList.toggle('hot', hit);
+        if (hit){ rel[e.dataset.s] = true; rel[e.dataset.t] = true; }
+      });
+      nodes.forEach(function(n){ n.classList.toggle('hot', !!rel[n.dataset.id]); });
+    }
+    function off(){ svg.classList.remove('focus'); edges.concat(nodes).forEach(function(x){ x.classList.remove('hot'); }); }
+    nodes.forEach(function(n){
+      n.addEventListener('pointerenter', function(){ if (!pinned) on(n.dataset.id); });
+      n.addEventListener('pointerleave', function(){ if (!pinned) off(); });
+      n.addEventListener('focus', function(){ on(n.dataset.id); });
+      n.addEventListener('blur', function(){ if (!pinned) off(); });
+      n.addEventListener('click', function(ev){
+        ev.stopPropagation();
+        if (pinned === n.dataset.id){ pinned = null; off(); } else { pinned = n.dataset.id; on(pinned); }
+      });
+    });
+    svg.addEventListener('click', function(){ pinned = null; off(); });
+  });
+
+  // 그림 크게 보기
+  document.querySelectorAll('[data-expand]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var fig = b.closest('figure');
+      var ex = fig.classList.toggle('expanded');
+      b.textContent = ex ? '닫기' : '크게 보기';
+      document.body.style.overflow = ex ? 'hidden' : '';
+    });
+  });
+  document.addEventListener('keydown', function(ev){
+    if (ev.key !== 'Escape') return;
+    var f = document.querySelector('figure.fig.expanded');
+    if (f){ f.classList.remove('expanded'); document.body.style.overflow=''; var b=f.querySelector('[data-expand]'); if(b) b.textContent='크게 보기'; }
+  });
+})();
+</script>
+</body></html>
