@@ -157,7 +157,7 @@ figure.fig.expanded .figscroll svg{width:auto; min-width:1400px !important}
 </header>
 </div>
 
-<nav class="toc" aria-label="목차"><div class="in"><a href="#s1">①~⑧ 로그인</a><a href="#s2">⑨~⑪ API 호출</a><a href="#s3">생기는 결과</a><a href="#s4">확인 못 한 것</a><a href="#s5">점검 순서</a></div></nav>
+<nav class="toc" aria-label="목차"><div class="in"><a href="#s1">①~⑧ 로그인</a><a href="#s2">⑨~⑪ API 호출</a><a href="#s3">생기는 결과</a><a href="#s4">점검 순서</a></div></nav>
 
 <main class="wrap">
 <section class="col" id="s0">
@@ -388,17 +388,7 @@ autoGenBlockKey = securecookie.GenerateRandomKey(cookieKeyLenBytes)</pre>
 <p>→ 완전히 로그아웃하려면 브라우저가 Keycloak 로그아웃 주소(<code>https://idp.example.com/realms/product/protocol/openid-connect/logout</code>)로도 이동해야 한다. <code>post_logout_redirect_uri</code>를 그 주소로 두면 두 로그아웃이 한 번에 이어진다.</p>
 </section>
 <section class="col" id="s4">
-<h2>4. 확인하지 못한 것</h2>
-<ul>
-<li>④~⑪과 로그아웃은 계정이 필요해 실측하지 않았고, 플러그인 소스를 따라 썼다. Keycloak 쪽 302와 시간 값(code 60초, 토큰 300초, 유휴 30분, 최대 10시간)은 Keycloak 기본값 기준이다. ②의 설정 문서 응답도 표준 필드 기준 예시다.</li>
-<li>client secret이 Basic 헤더로 가는 것은 Go oauth2 라이브러리 기본 동작 기준이다.</li>
-<li>세션이 끝난 뒤 <code>fetch</code> API가 302를 받아 실패하는 것은 브라우저 CORS 동작에서 예상한 것이다.</li>
-<li>설정의 consumer가 Kong에 없을 때: 소스상으로는 오류 없이 <code>X-Consumer-*</code> 헤더만 빠지고 통과한다. 실행해 보지 않았고, consumer 이름으로 권한을 나누는 백엔드라면 확인이 필요하다.</li>
-<li>Keycloak 로그아웃 주소로 보낼 때 확인 화면이 뜨는지는 Keycloak 버전·설정에 따라 다르고, 보지 않았다.</li>
-</ul>
-</section>
-<section class="col" id="s5">
-<h2>5. 로그인 문제는 302·Keycloak 응답·세션 수명·Kong 재시작 순서로 확인</h2>
+<h2>4. 로그인 문제는 302·Keycloak 응답·세션 수명·Kong 재시작 순서로 확인</h2>
 <ol>
 <li>첫 요청에 302 대신 500이 나온다 → ②에서 Kong이 Keycloak 설정 문서를 받지 못했다. Keycloak 주소·인증서를 본다.</li>
 <li>로그인한 사용자가 갑자기 500을 받는다 → ⑩의 5분 캐시가 끝난 시점에 Kong에서 Keycloak으로 연결되지 않았다. 그 시각의 Keycloak 상태를 본다.</li>
