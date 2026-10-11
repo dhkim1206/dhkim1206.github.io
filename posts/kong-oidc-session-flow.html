@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kong OIDC 플러그인과 Keycloak 로그인에서 요청마다 오가는 쿠키·토큰·헤더</title>
+<meta name="description" content="백엔드가 받는 X-Credential-Identifier가 어디서 오는지, 첫 요청 302부터 API 헤더까지 ①~⑪ 단계로 따라간다.">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Kong OIDC 플러그인과 Keycloak 로그인에서 요청마다 오가는 쿠키·토큰·헤더">
+<meta property="og:description" content="백엔드가 받는 X-Credential-Identifier가 어디서 오는지, 첫 요청 302부터 API 헤더까지 ①~⑪ 단계로 따라간다.">
+<meta name="author" content="dhkim1206">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>/* 레이아웃: 780px 본문 칼럼 + 그림은 칼럼보다 넓게(최대 1120px). 색·그림 토큰은 mDaq 온보딩 문서와 통일 */
+:root{
+  --bg:#F3F5F6; --surface:#FFFFFF; --surface-2:#F8FAFB; --ink:#16222B; --muted:#5A6A74; --faint:#8795A0;
+  --line:#D5DDE2; --line-2:#E6ECEF; --edge:#3E4C56; --edge-ink:#2B3740;
+  --cyc:#2F63C9; --cyc-t:#E4ECFA; --ua:#2A8158; --ua-t:#E0F1E7;
+  --infra:#5F6F7C; --infra-t:#ECEFF2; --ext:#8A97A0; --gap:#D0402F; --gap-t:#FDECEA; --amber:#A86A12; --amber-t:#FBF0DC;
+  --accent:#1F5F8B; --focus:#1F5F8B;
+  --font-sans:"IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0E1418; --surface:#151D23; --surface-2:#19232A; --ink:#E2E9ED; --muted:#98A8B2; --faint:#6F808B;
+    --line:#2C3942; --line-2:#222E36; --edge:#AFBCC5; --edge-ink:#D3DCE2;
+    --cyc:#79A2F2; --cyc-t:#17253C; --ua:#63C595; --ua-t:#12291F;
+    --infra:#9AA8B4; --infra-t:#1D262D; --ext:#7D8C96; --gap:#FF7B69; --gap-t:#3A1C18; --amber:#E0A450; --amber-t:#33260F;
+    --accent:#7FB6DF; --focus:#7FB6DF;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0E1418; --surface:#151D23; --surface-2:#19232A; --ink:#E2E9ED; --muted:#98A8B2; --faint:#6F808B;
+  --line:#2C3942; --line-2:#222E36; --edge:#AFBCC5; --edge-ink:#D3DCE2;
+  --cyc:#79A2F2; --cyc-t:#17253C; --ua:#63C595; --ua-t:#12291F;
+  --infra:#9AA8B4; --infra-t:#1D262D; --ext:#7D8C96; --gap:#FF7B69; --gap-t:#3A1C18; --amber:#E0A450; --amber-t:#33260F;
+  --accent:#7FB6DF; --focus:#7FB6DF;
+}
+*{box-sizing:border-box}
+body{background:var(--bg); color:var(--ink); font-family:var(--font-sans); font-size:16px; line-height:1.75; padding-inline:16px; padding-block:0 72px; margin:0}
+.wrap{max-width:1120px; margin:0 auto}
+.col{max-width:760px; margin-inline:auto}
+a{color:var(--accent)}
+code{font-family:var(--font-mono); font-size:.86em; background:var(--surface-2); border:1px solid var(--line-2); border-radius:4px; padding:0 .3em; overflow-wrap:anywhere}
+h1,h2,h3{text-wrap:balance; line-height:1.3; margin:0}
+h1{font-size:clamp(26px,3.6vw,36px); font-weight:700; letter-spacing:-.015em}
+h2{font-size:23px; font-weight:700; margin-top:56px; margin-bottom:12px; scroll-margin-top:64px}
+h3{font-size:17px; font-weight:600; margin-top:30px; margin-bottom:6px}
+p{margin:.75em 0}
+ul,ol{padding-left:1.3em} li{margin:.3em 0}
+.eyebrow{font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); font-weight:600}
+header.top{padding-block:44px 18px; display:grid; gap:12px}
+.lede{font-size:18px; color:var(--muted)}
+.meta{display:flex; flex-wrap:wrap; gap:8px; font-size:13px; color:var(--muted)}
+.chip{display:inline-flex; align-items:center; gap:6px; font-size:12.5px; padding:2px 10px; border-radius:999px; border:1px solid var(--line); background:var(--surface); white-space:nowrap}
+nav.toc{position:sticky; top:env(safe-area-inset-top,0px); z-index:5; background:color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter:blur(6px); border-bottom:1px solid var(--line); margin-inline:-16px; padding-inline:16px}
+nav.toc .in{max-width:1120px; margin:0 auto; display:flex; gap:4px; overflow-x:auto; padding-block:8px; scrollbar-width:thin}
+nav.toc a{flex:none; text-decoration:none; color:var(--muted); font-size:13px; padding:4px 10px; border-radius:6px}
+nav.toc a:hover, nav.toc a:focus-visible{background:var(--surface); color:var(--ink)}
+/* 확인한 네 곳 */
+.checks{display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin:14px 0}
+.check{background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--cyc); border-radius:8px; padding:10px 12px; font-size:14px; line-height:1.5; min-width:0}
+.check b{display:block; font-size:12px; color:var(--cyc); letter-spacing:.02em}
+.verdict{display:flex; flex-wrap:wrap; gap:10px; align-items:stretch; margin:14px 0}
+.verdict > div{flex:1 1 220px; border-radius:8px; padding:10px 14px; font-size:14.5px; line-height:1.55; min-width:0}
+.verdict .exp{background:var(--surface); border:1px solid var(--line)}
+.verdict .act{background:var(--gap-t); border:1px solid var(--gap)}
+.verdict b{display:block; font-size:12px; letter-spacing:.04em; color:var(--muted)}
+.verdict .act b{color:var(--gap)}
+/* 해시 비교 */
+.hashes{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:14px 0}
+.hash{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 14px; display:grid; gap:2px; min-width:0}
+.hash .k{font-size:12.5px; color:var(--muted)}
+.hash .v{font-family:var(--font-mono); font-size:22px; font-weight:500; font-variant-numeric:tabular-nums; letter-spacing:.02em}
+.hash.cm{border-top:3px solid var(--cyc)} .hash.cm .v{color:var(--cyc)}
+.hash.sec{border-top:3px solid var(--amber)} .hash.sec .v{color:var(--amber)}
+.hash.pod{border-top:3px solid var(--gap)} .hash.pod .v{color:var(--gap)}
+.hash .eq{font-size:12.5px; font-weight:600; color:var(--gap)}
+pre.snip{background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow-x:auto; font-family:var(--font-mono); font-size:13px; line-height:1.6; margin:12px 0}
+pre.snip .c{color:var(--faint)}
+.tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:10px; background:var(--surface); margin:12px 0}
+table.t{border-collapse:collapse; width:100%; font-size:14px}
+table.t th{background:var(--surface-2); text-align:left; font-weight:600; font-size:13px; color:var(--muted); padding:8px 12px; border-bottom:1px solid var(--line)}
+table.t td{padding:8px 12px; border-bottom:1px solid var(--line-2); vertical-align:top}
+table.t tr:last-child td{border-bottom:0}
+table.t td.hot{color:var(--gap); font-weight:600}
+blockquote{margin:12px 0; padding:8px 14px; border-left:3px solid var(--line); color:var(--muted); font-size:14.5px}
+.callout{border-left:3px solid var(--amber); background:var(--amber-t); padding:10px 14px; border-radius:0 8px 8px 0; font-size:15px; margin:14px 0}
+.callout.gap{border-color:var(--gap); background:var(--gap-t)}
+ol.chain{counter-reset:c; list-style:none; padding:0; display:grid; gap:8px; margin:14px 0}
+ol.chain li{counter-increment:c; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 14px 10px 46px; position:relative; margin:0}
+ol.chain li::before{content:counter(c); position:absolute; left:14px; top:10px; width:22px; height:22px; border-radius:50%; background:var(--gap-t); color:var(--gap); font-size:12.5px; font-weight:700; display:grid; place-items:center}
+.closing{font-size:19px; font-weight:600; margin:18px 0}
+.legend{display:flex; flex-wrap:wrap; gap:10px 18px; font-size:13px; color:var(--muted); align-items:center; margin:8px 0 0}
+.legend span{display:inline-flex; align-items:center; gap:6px}
+.sw{width:22px; height:14px; border-radius:4px; border:1.4px solid; display:inline-block}
+.sw.cyc{background:var(--cyc-t); border-color:var(--cyc)} .sw.amber{background:var(--amber-t); border-color:var(--amber)}
+.sw.infra{background:var(--infra-t); border-color:var(--infra)} .sw.ua{background:var(--ua-t); border-color:var(--ua)}
+.sw.gap{background:var(--gap-t); border-color:var(--gap); border-style:dashed} .sw.ext{background:none; border-color:var(--ext); border-style:dashed}
+.ln{width:26px; height:0; border-top:1.6px solid var(--edge); display:inline-block}
+.ln.dash{border-top-style:dashed} .ln.gap{border-top:1.8px dashed var(--gap)}
+footer{margin-top:56px; padding-top:16px; border-top:1px solid var(--line); color:var(--muted); font-size:13.5px}
+footer ul{padding-left:1.1em}
+/* figures */
+figure.fig{margin:22px 0 10px; background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow:hidden}
+.figbar{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:10px 14px; border-bottom:1px solid var(--line-2)}
+.figbar h3{font-size:15px; margin:0}
+.figbar .acts{display:flex; gap:6px}
+button.btn{font:inherit; font-size:12.5px; padding:4px 10px; border-radius:6px; border:1px solid var(--line); background:var(--surface-2); color:var(--ink); cursor:pointer}
+button.btn:hover{border-color:var(--faint)}
+button.btn:focus-visible, .n:focus-visible{outline:2px solid var(--focus); outline-offset:2px}
+.figscroll{overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch}
+.figscroll svg{display:block; width:100%; height:auto}
+figcaption{padding:10px 16px 14px; color:var(--muted); font-size:13.5px; line-height:1.6; border-top:1px solid var(--line-2)}
+figure.fig.expanded{position:fixed; inset:0; z-index:50; margin:0; border-radius:0; display:flex; flex-direction:column}
+figure.fig.expanded .figscroll{flex:1; overflow:auto}
+figure.fig.expanded .figscroll svg{width:auto; min-width:1400px !important}
+.dg .bg{fill:var(--surface)}
+.dg text{font-family:var(--font-sans)}
+.dg .t-title{fill:var(--ink); font-size:12.5px; font-weight:600}
+.dg .t-title.mono{font-family:var(--font-mono); font-size:11.5px}
+.dg .t-sub{fill:var(--muted); font-size:10.5px}
+.dg .t-field{fill:var(--ink); font-family:var(--font-mono); font-size:10.5px}
+.dg .t-field.hot{fill:var(--gap); font-family:var(--font-sans); font-weight:600}
+.dg .shape{stroke-width:1.3}
+.dg .n-cyc .shape{fill:var(--cyc-t); stroke:var(--cyc)}
+.dg .n-ua .shape{fill:var(--ua-t); stroke:var(--ua)}
+.dg .n-infra .shape{fill:var(--infra-t); stroke:var(--infra)}
+.dg .n-amber .shape{fill:var(--amber-t); stroke:var(--amber)}
+.dg .k-ext .shape{fill:var(--surface); stroke:var(--ext); stroke-dasharray:5 4}
+.dg .k-gap .shape{fill:var(--gap-t); stroke:var(--gap); stroke-dasharray:6 4}
+.dg .k-note .shape{fill:var(--surface-2); stroke:var(--line)}
+.dg .k-note .t-title{fill:var(--muted)}
+.dg .grp rect{fill-opacity:.38; stroke-opacity:.55; stroke-dasharray:4 4; stroke-width:1.2}
+.dg .g-infra rect{fill:var(--infra-t); stroke:var(--infra)} .dg .g-infra .g-title{fill:var(--infra)}
+.dg .g-gap rect{fill:var(--gap-t); stroke:var(--gap)} .dg .g-gap .g-title{fill:var(--gap)}
+.dg .g-ua rect{fill:var(--ua-t); stroke:var(--ua)} .dg .g-ua .g-title{fill:var(--ua)}
+.dg .g-title{fill:var(--muted); font-size:12px; font-weight:700; letter-spacing:.01em}
+.dg .e polyline{fill:none; stroke:var(--edge); stroke-width:1.4}
+.dg .e-dash polyline{stroke-dasharray:5 4}
+.dg .e-gap polyline{stroke:var(--gap); stroke-dasharray:6 4; stroke-width:1.6}
+.dg .mk{fill:var(--edge)} .dg .mk-gap{fill:var(--gap)}
+.dg .lb{fill:var(--surface)}
+.dg .lt{fill:var(--edge-ink); font-size:10.5px}
+.dg .e-gap .lt{fill:var(--gap); font-weight:600}
+.dg .n{transition:opacity .15s; cursor:pointer} .dg .e{transition:opacity .15s}
+.dg.focus .e:not(.hot){opacity:.12} .dg.focus .n:not(.hot){opacity:.3} .dg.focus .grp{opacity:.6}
+@media (prefers-reduced-motion: reduce){ .dg .n,.dg .e{transition:none} }
+@media (max-width:640px){ body{font-size:15px} h2{font-size:20px} .lede{font-size:16px} .hash .v{font-size:19px} }
+</style>
+</head><body>
+<div class="wrap">
+<header class="top col">
+  <h1>Kong OIDC 플러그인과 Keycloak 로그인에서 요청마다 오가는 쿠키·토큰·헤더</h1>
+  <p class="lede">백엔드가 받는 X-Credential-Identifier가 어디서 오는지, 첫 요청 302부터 API 헤더까지 ①~⑪ 단계로 따라간다.</p>
+</header>
+</div>
+
+<nav class="toc" aria-label="목차"><div class="in"><a href="#s1">①~⑧ 로그인</a><a href="#s2">⑨~⑪ API 호출</a><a href="#s3">생기는 결과</a><a href="#s4">확인 못 한 것</a><a href="#s5">점검 순서</a></div></nav>
+
+<main class="wrap">
+<section class="col" id="s0">
+<p>Kong 뒤 백엔드 로그에 찍히는 <code>X-Credential-Identifier: 3f2a1c…</code> 이게 뭘까?</p>
+<p>정답부터 말하면 Keycloak 사용자 UUID(ID 토큰의 <code>sub</code>)이고, 백엔드가 아니라 Kong의 OIDC 플러그인(oidcify)이 요청마다 넣어 주는 헤더다. 백엔드 코드에 로그인 처리가 없는데도 사용자를 아는 이유가 이것이다.</p>
+<p>그럼 Kong은 이 값을 어디서 꺼낼까? 로그인 세션은 Kong 서버에도 Keycloak 서버에도 없고, 브라우저 쿠키 <code>OIDCSESSION0</code> 하나에 암호화돼 있다. Kong은 요청마다 이 쿠키를 풀어 꺼낸다. 브라우저가 이 쿠키를 받기까지(①~⑧)와 그 쿠키로 API를 부르기까지(⑨~⑪)를 차례로 따라가고, 이 구조에서 생기는 결과(Keycloak 장애, 세션 수명, Kong 재시작, 로그아웃)를 그 뒤에 모았다.</p>
+<p>플러그인은 오픈소스 Kong 플러그인 oidcify v1.3.2다. ①~③의 응답은 운영 중인 클러스터에서 실제로 받은 것이고, ④부터는 플러그인 소스(<code>main.go</code>)를 따라갔다.</p>
+</section>
+<section class="col" id="s1">
+<h2>1. 로그인: 쿠키 없는 첫 요청부터 쿠키에 ID 토큰이 들어가기까지</h2>
+</section>
+<figure class="fig" id="f-f1"><div class="figbar"><h3>로그인 ①~④: 쿠키 없는 첫 요청부터 Keycloak 비밀번호 확인까지</h3><div class="acts"><button class="btn" type="button" data-expand>크게 보기</button></div></div><div class="figscroll"><svg class="dg" id="f1" viewBox="0 0 954 550" role="img" aria-label="① 브라우저가 쿠키 없이 요청한다. ② Kong 플러그인이 Keycloak 설정 문서를 받고(5분 캐시) state·nonce·PKCE 원본을 만들어 쿠키 OIDCSESSION0에 암호화해 넣은 뒤 302를 준다. ③ 브라우저가 client_id·redirect_uri·state·nonce·code_challenge를 들고 Keycloak으로 간다. ④ Keycloak이 비밀번호를 확인하고 Keycloak 세션 쿠키를 굽고 /* 주소로 302를 준다" style="min-width:954px;max-width:954px;margin-inline:auto" xmlns="http://www.w3.org/2000/svg"><defs><marker id="f1-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker><marker id="f1-ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-gap"/></marker></defs><rect class="bg" x="0" y="0" width="954" height="550"/><text class="g-title" x="16" y="80" text-anchor="start">브라우저</text><text class="g-title" x="16" y="210" text-anchor="start">브라우저 쿠키</text><text class="g-title" x="16" y="340" text-anchor="start">Kong 플러그인</text><text class="g-title" x="16" y="470" text-anchor="start">Keycloak</text><g class="e e-solid" data-s="S1" data-t="S2"><polyline points="288.0,88.0 306.0,88.0 306.0,348.0 324.0,348.0" marker-end="url(#f1-a)"/></g><g class="e e-dash" data-s="S2" data-t="D2"><polyline points="413.0,396.0 413.0,430.0" marker-end="url(#f1-a)"/></g><g class="e e-dash" data-s="S2" data-t="C2"><polyline points="413.0,300.0 413.0,266.0" marker-end="url(#f1-a)"/></g><g class="e e-solid" data-s="S2" data-t="S3"><polyline points="502.0,348.0 520.0,348.0 520.0,88.0 538.0,88.0" marker-end="url(#f1-a)"/></g><g class="e e-solid" data-s="S3" data-t="S4"><polyline points="716.0,88.0 734.0,88.0 734.0,478.0 752.0,478.0" marker-end="url(#f1-a)"/></g><g class="e e-dash" data-s="S4" data-t="C4"><polyline points="841.0,430.0 841.0,266.0" marker-end="url(#f1-a)"/></g><g class="n n-infra k-svc" data-id="S1" tabindex="0"><rect class="shape" x="110" y="40" width="178" height="96" rx="8"/><text class="t-title" x="199.0" y="77.0" text-anchor="middle">① GET /</text><text class="t-sub" x="199.0" y="92.0" text-anchor="middle">app.example.com</text><text class="t-sub" x="199.0" y="107.0" text-anchor="middle">쿠키 없음 → 로그인 시작</text></g><g class="n n-amber k-svc" data-id="S2" tabindex="0"><rect class="shape" x="324" y="300" width="178" height="96" rx="8"/><text class="t-title" x="413.0" y="322.0" text-anchor="middle">② 로그인 준비</text><text class="t-sub" x="413.0" y="337.0" text-anchor="middle">콜백 위조 막을 state 생성</text><text class="t-sub" x="413.0" y="352.0" text-anchor="middle">토큰 재사용 막을 nonce 생성</text><text class="t-sub" x="413.0" y="367.0" text-anchor="middle">콜백 때 낼 PKCE 원본 생성</text><text class="t-sub" x="413.0" y="382.0" text-anchor="middle">쿠키에 암호화 → 302</text></g><g class="n n-ext k-ext" data-id="D2" tabindex="0"><rect class="shape" x="324" y="430" width="178" height="96" rx="8"/><text class="t-title" x="413.0" y="452.0" text-anchor="middle">Keycloak 설정 문서</text><text class="t-sub" x="413.0" y="467.0" text-anchor="middle">/.well-known/…</text><text class="t-sub" x="413.0" y="482.0" text-anchor="middle">302 만들 로그인 주소 확인</text><text class="t-sub" x="413.0" y="497.0" text-anchor="middle">서명 확인할 공개키 주소 확인</text><text class="t-sub" x="413.0" y="512.0" text-anchor="middle">5분 캐시 · 실패 시 500</text></g><g class="n n-amber k-svc" data-id="C2" tabindex="0"><rect class="shape" x="324" y="170" width="178" height="96" rx="8"/><text class="t-title" x="413.0" y="192.0" text-anchor="middle">OIDCSESSION0 생성</text><text class="t-sub" x="413.0" y="207.0" text-anchor="middle">콜백 때 비교할 값 보관</text><text class="t-sub" x="413.0" y="222.0" text-anchor="middle">state·nonce·PKCE 원본</text><text class="t-sub" x="413.0" y="237.0" text-anchor="middle">늦은 콜백 거를 유효 시각 10분</text><text class="t-sub" x="413.0" y="252.0" text-anchor="middle">HttpOnly · SameSite=Lax</text></g><g class="n n-infra k-svc" data-id="S3" tabindex="0"><rect class="shape" x="538" y="40" width="178" height="96" rx="8"/><text class="t-title" x="627.0" y="69.5" text-anchor="middle">③ 302 따라 이동</text><text class="t-sub" x="627.0" y="84.5" text-anchor="middle">로그인 화면 요청 GET …/auth</text><text class="t-sub" x="627.0" y="99.5" text-anchor="middle">client_id·redirect_uri</text><text class="t-sub" x="627.0" y="114.5" text-anchor="middle">state·nonce·code_challenge</text></g><g class="n n-ext k-ext" data-id="S4" tabindex="0"><rect class="shape" x="752" y="430" width="178" height="96" rx="8"/><text class="t-title" x="841.0" y="452.0" text-anchor="middle">④ 비밀번호 확인</text><text class="t-sub" x="841.0" y="467.0" text-anchor="middle">redirect_uri 허용 주소 확인</text><text class="t-sub" x="841.0" y="482.0" text-anchor="middle">비밀번호 확인</text><text class="t-sub" x="841.0" y="497.0" text-anchor="middle">다음 로그인 생략용 세션 생성</text><text class="t-sub" x="841.0" y="512.0" text-anchor="middle">302 → /*?state&amp;code</text></g><g class="n n-ext k-ext" data-id="C4" tabindex="0"><rect class="shape" x="752" y="170" width="178" height="96" rx="8"/><text class="t-title" x="841.0" y="207.0" text-anchor="middle">Keycloak 세션 쿠키</text><text class="t-sub" x="841.0" y="222.0" text-anchor="middle">idp.example.com 도메인</text><text class="t-sub" x="841.0" y="237.0" text-anchor="middle">다음 로그인 때 비밀번호 생략</text></g></svg></div><figcaption>세로 줄은 위에서부터 브라우저, 브라우저 쿠키, Kong 플러그인, Keycloak입니다. ②에서 Kong은 Keycloak 설정 문서(5분 캐시)를 받고, 돌아왔을 때 비교할 값을 쿠키에 넣어 브라우저에 맡깁니다.</figcaption></figure>
+<section class="col">
+<h3>① 브라우저가 쿠키 없이 첫 화면을 요청</h3>
+<pre class="snip">curl -s -o /dev/null -D - https://app.example.com/</pre>
+<p>→ 쿠키가 없으므로 Kong 플러그인은 이 요청을 "로그인 안 된 요청"으로 보고 로그인을 시작한다.</p>
+<h3>② Kong 플러그인이 로그인을 준비하고 302를 돌려줌</h3>
+<ol>
+<li>Keycloak 설정 문서에서 로그인 주소와 공개키 주소를 꺼낸다. 5분 캐시에 없으면 Keycloak에서 받는다.</li>
+</ol>
+<pre class="snip">GET https://idp.example.com/realms/product/.well-known/openid-configuration   (예시)
+  authorization_endpoint: …/protocol/openid-connect/auth    <span class="c"># 로그인 주소</span>
+  jwks_uri:               …/protocol/openid-connect/certs   <span class="c"># 공개키 주소</span></pre>
+<ol start="2">
+<li>돌아왔을 때 쓸 값을 만들어 쿠키에 암호화해 넣는다. 브라우저는 이 내용을 못 읽는다.</li>
+</ol>
+<pre class="snip">State:            1f01f6bf…    ← 돌아올 때 주소의 state 와 비교
+Nonce:            95289df8…    ← ID 토큰 안에 그대로 돌아올 값
+PKCECodeVerifier: (64자)       ← Keycloak 에는 해시만 먼저 보내고, 원본은 ⑥에서 낸다
+ValidUntil:       지금 + 10분  ← 이 안에 돌아와야 한다</pre>
+<ol start="3">
+<li>브라우저를 Keycloak으로 보내는 302를 돌려준다.</li>
+</ol>
+<p>→ Kong 서버에는 아무것도 남지 않는다. 돌아왔을 때 필요한 값은 전부 이 쿠키에 있다.</p>
+<p>→ 1번에서 Keycloak이 응답하지 않거나 Keycloak 인증서를 신뢰하지 못하면 로그인 주소를 만들 수 없어, 302 대신 500이 나온다.</p>
+<h3>③ 브라우저가 302를 따라 Keycloak으로 이동</h3>
+<p>①의 실제 응답이다. 읽기 쉽게 URL 디코딩하고 줄을 나눴다.</p>
+<pre class="snip">HTTP/2 302
+location: https://idp.example.com/realms/product/protocol/openid-connect/auth
+    ?client_id=app
+    &amp;response_type=code
+    &amp;scope=openid
+    &amp;redirect_uri=https://app.example.com/*   <span class="c"># 로그인 뒤 돌아올 주소. 플러그인 설정값 그대로라 경로도 글자 그대로 /*</span>
+    &amp;state=1f01f6bf…        (64자)            <span class="c"># ②에서 쿠키에 넣은 값과 같다</span>
+    &amp;nonce=95289df8…        (64자)
+    &amp;code_challenge=XI54pq… (43자)            <span class="c"># PKCE 원본의 해시</span>
+    &amp;code_challenge_method=S256
+set-cookie: OIDCSESSION0=&lt;암호화 780자&gt;; Path=/; HttpOnly; Secure; SameSite=Lax
+                                              <span class="c"># 끝 숫자 0은 분할 번호. 4000자를 넘으면 OIDCSESSION1… 최대 10개</span></pre>
+<p>→ 주소에는 state·nonce·해시만 실리고 비밀값(client secret, PKCE 원본)은 없다. 비밀값은 ⑥에서 Kong이 Keycloak에 직접 낸다.</p>
+<h3>④ Keycloak이 비밀번호를 확인하고 1회용 code를 들려 돌려보냄</h3>
+<ol>
+<li><code>redirect_uri</code>가 client에 등록된 허용 주소(<code>https://app.example.com/*</code>)와 맞는지 본다.</li>
+<li>로그인 화면을 보여 주고 비밀번호를 확인한다. Keycloak 세션이 이미 있으면 화면 없이 넘어간다.</li>
+<li>자기 도메인(<code>idp.example.com</code>)에 Keycloak 세션 쿠키를 굽는다.</li>
+<li>브라우저를 <code>redirect_uri</code>로 돌려보낸다.</li>
+</ol>
+<pre class="snip"><span class="c"># Keycloak 표준 동작 기준 예시. 실제로는 session_state 등이 더 붙는다</span>
+302 location: https://app.example.com/*?state=1f01f6bf…&amp;code=&lt;1회용 코드&gt;</pre>
+<p>→ 이 주소에도 토큰은 없다. code는 Keycloak 기본값으로 60초 안에 한 번만 쓸 수 있다.</p>
+<p>→ 1번에서 주소가 다르면 로그인 화면 대신 <code>Invalid parameter: redirect_uri</code> 오류에서 멈춘다.</p>
+</section>
+<figure class="fig" id="f-f2"><div class="figbar"><h3>로그인 ⑤~⑧: 1회용 code를 ID 토큰으로 바꾸고 쿠키를 교체하기까지</h3><div class="acts"><button class="btn" type="button" data-expand>크게 보기</button></div></div><div class="figscroll"><svg class="dg" id="f2" viewBox="0 0 954 550" role="img" aria-label="⑤ 브라우저가 state와 1회용 code를 들고 /* 로 돌아오고 쿠키 OIDCSESSION0도 실려 온다. ⑥ Kong 플러그인이 쿠키를 복호화해 10분과 state를 확인하고 Keycloak 토큰 주소로 서버끼리 POST한다. ⑦ Keycloak이 client secret과 code_verifier를 확인하고 ID 토큰을 준다. ⑧ Kong이 서명·aud·nonce를 확인하고 access·refresh 토큰은 버린 뒤 쿠키를 ID 토큰으로 교체하고 원래 주소로 302를 준다" style="min-width:954px;max-width:954px;margin-inline:auto" xmlns="http://www.w3.org/2000/svg"><defs><marker id="f2-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker><marker id="f2-ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-gap"/></marker></defs><rect class="bg" x="0" y="0" width="954" height="550"/><text class="g-title" x="16" y="80" text-anchor="start">브라우저</text><text class="g-title" x="16" y="210" text-anchor="start">브라우저 쿠키</text><text class="g-title" x="16" y="340" text-anchor="start">Kong 플러그인</text><text class="g-title" x="16" y="470" text-anchor="start">Keycloak</text><g class="e e-dash" data-s="S5" data-t="C5"><polyline points="199.0,136.0 199.0,170.0" marker-end="url(#f2-a)"/></g><g class="e e-solid" data-s="S5" data-t="S6"><polyline points="288.0,88.0 306.0,88.0 306.0,348.0 324.0,348.0" marker-end="url(#f2-a)"/></g><g class="e e-solid" data-s="S6" data-t="S7"><polyline points="502.0,348.0 520.0,348.0 520.0,478.0 538.0,478.0" marker-end="url(#f2-a)"/></g><g class="e e-solid" data-s="S7" data-t="S8"><polyline points="716.0,478.0 734.0,478.0 734.0,348.0 752.0,348.0" marker-end="url(#f2-a)"/></g><g class="e e-dash" data-s="S8" data-t="C8"><polyline points="841.0,300.0 841.0,266.0" marker-end="url(#f2-a)"/></g><g class="n n-infra k-svc" data-id="S5" tabindex="0"><rect class="shape" x="110" y="40" width="178" height="96" rx="8"/><text class="t-title" x="199.0" y="77.0" text-anchor="middle">⑤ /* 로 돌아옴</text><text class="t-sub" x="199.0" y="92.0" text-anchor="middle">?state=…&amp;code=…</text><text class="t-sub" x="199.0" y="107.0" text-anchor="middle">토큰은 주소에 없음</text></g><g class="n n-amber k-svc" data-id="C5" tabindex="0"><rect class="shape" x="110" y="170" width="178" height="96" rx="8"/><text class="t-title" x="199.0" y="207.0" text-anchor="middle">OIDCSESSION0 전송</text><text class="t-sub" x="199.0" y="222.0" text-anchor="middle">Lax라 사이트 간 GET에도</text><text class="t-sub" x="199.0" y="237.0" text-anchor="middle">실려 감</text></g><g class="n n-amber k-svc" data-id="S6" tabindex="0"><rect class="shape" x="324" y="300" width="178" height="96" rx="8"/><text class="t-title" x="413.0" y="322.0" text-anchor="middle">⑥ 콜백 처리</text><text class="t-sub" x="413.0" y="337.0" text-anchor="middle">쿠키에서 비교값 꺼냄</text><text class="t-sub" x="413.0" y="352.0" text-anchor="middle">늦은 콜백 거르는 10분 확인</text><text class="t-sub" x="413.0" y="367.0" text-anchor="middle">위조 콜백 거르는 state 비교</text><text class="t-sub" x="413.0" y="382.0" text-anchor="middle">ID 토큰 받으려 POST /token</text></g><g class="n n-ext k-ext" data-id="S7" tabindex="0"><rect class="shape" x="538" y="430" width="178" height="96" rx="8"/><text class="t-title" x="627.0" y="459.5" text-anchor="middle">⑦ ID 토큰 발급</text><text class="t-sub" x="627.0" y="474.5" text-anchor="middle">client secret 확인</text><text class="t-sub" x="627.0" y="489.5" text-anchor="middle">도용 막는 code_verifier 확인</text><text class="t-sub" x="627.0" y="504.5" text-anchor="middle">id_token + access·refresh</text></g><g class="n n-ua k-svc" data-id="S8" tabindex="0"><rect class="shape" x="752" y="300" width="178" height="96" rx="8"/><text class="t-title" x="841.0" y="329.5" text-anchor="middle">⑧ 검증 · 쿠키 교체</text><text class="t-sub" x="841.0" y="344.5" text-anchor="middle">서명·aud·nonce 확인</text><text class="t-sub" x="841.0" y="359.5" text-anchor="middle">access·refresh 버림</text><text class="t-sub" x="841.0" y="374.5" text-anchor="middle">원래 화면으로 302 → /</text></g><g class="n n-ua k-svc" data-id="C8" tabindex="0"><rect class="shape" x="752" y="170" width="178" height="96" rx="8"/><text class="t-title" x="841.0" y="207.0" text-anchor="middle">OIDCSESSION0 교체</text><text class="t-sub" x="841.0" y="222.0" text-anchor="middle">{ 로그인 완료, ID 토큰 }</text><text class="t-sub" x="841.0" y="237.0" text-anchor="middle">Expires 없음 · 30일 상한</text></g></svg></div><figcaption>⑥에서 Kong이 쿠키의 state를 비교한 뒤 client secret을 들고 Keycloak을 직접 부릅니다. ⑧이 끝나면 쿠키 안에는 ID 토큰만 남고, access·refresh 토큰은 어디에도 남지 않습니다.</figcaption></figure>
+<section class="col">
+<h3>⑤ 브라우저가 code를 들고 /* 로 돌아옴</h3>
+<pre class="snip">GET https://app.example.com/*?state=1f01f6bf…&amp;code=&lt;1회용 코드&gt;
+Cookie: OIDCSESSION0=&lt;암호화{ state·nonce·PKCE 원본·유효 시각 }&gt;</pre>
+<p>→ 쿠키가 <code>SameSite=Lax</code>라서, 다른 사이트(Keycloak)에서 넘어오는 이 GET 이동에도 쿠키가 실린다.</p>
+<p>→ Kong 플러그인은 경로가 설정 <code>redirect_uri</code>의 경로(<code>/*</code>)와 같으면 로그인 콜백으로, <code>logout_path</code>(<code>/logout</code>)와 같으면 로그아웃으로, 나머지는 일반 요청으로 처리한다. 이 요청은 콜백이다.</p>
+<h3>⑥ Kong 플러그인이 state를 비교하고 Keycloak에 토큰을 요청</h3>
+<ol>
+<li>쿠키를 복호화해 state·nonce·PKCE 원본·유효 시각을 꺼낸다.</li>
+<li>쿠키가 없거나 10분이 지났으면 400으로 끝낸다.</li>
+<li>주소에 code·state가 없거나 state가 쿠키와 다르면 400으로 끝낸다.</li>
+<li>Keycloak 토큰 주소로 서버끼리 POST한다.</li>
+</ol>
+<pre class="snip">POST https://idp.example.com/realms/product/protocol/openid-connect/token
+Authorization: Basic &lt;client_id:client_secret&gt;   <span class="c"># 브라우저는 이 값을 본 적이 없다</span>
+grant_type=authorization_code
+code=&lt;1회용 코드&gt;
+redirect_uri=https://app.example.com/*
+code_verifier=&lt;쿠키에 있던 PKCE 원본&gt;           <span class="c"># ②에서 보낸 code_challenge 와 맞아야 한다</span></pre>
+<p>→ code가 새도 토큰으로 바꿀 수 없다. client secret은 Kong 플러그인 설정에만, PKCE 원본은 암호화된 쿠키 안에만 있기 때문이다.</p>
+<p>→ 쿠키를 지웠거나 로그인에 10분 넘게 걸리면 2번에서 400이 나오고, Kong은 다시 Keycloak으로 보내 주지 않는다. 사용자가 처음 주소를 다시 열어야 한다.</p>
+<h3>⑦ Keycloak이 ID 토큰을 발급</h3>
+<ol>
+<li>client secret과 code를 확인한다.</li>
+<li><code>code_verifier</code>의 해시가 ④ 전에 받은 <code>code_challenge</code>와 같은지 확인한다.</li>
+<li>ID 토큰·access token·refresh token을 돌려준다.</li>
+</ol>
+<p>ID 토큰 안에는 이런 값이 들어 있다(예시).</p>
+<pre class="snip">sub:   3f2a1c…            ← Keycloak 사용자 UUID. 나중에 X-Credential-Identifier 가 된다
+email: user@example.com
+aud:   app                ← 이 토큰을 받을 client
+nonce: 95289df8…          ← ②에서 만든 값 그대로
+exp:   발급 + 300초        ← Keycloak access token 수명(기본 300초)</pre>
+<h3>⑧ Kong 플러그인이 ID 토큰을 검증하고 쿠키를 교체</h3>
+<ol>
+<li>Keycloak 공개키로 서명을 확인하고, <code>aud = app</code>, 만료 전인지, <code>nonce</code>가 쿠키의 nonce와 같은지 확인한다. 실패하면 500이다.</li>
+<li>쿠키를 새로 쓴다.</li>
+</ol>
+<pre class="snip">OIDCSESSION0 = 암호화{ 로그인 완료: true, ID 토큰: "eyJ…" }</pre>
+<ol start="3">
+<li>처음 요청했던 주소(<code>/</code>)로 302를 돌려준다.</li>
+</ol>
+<p>→ access token과 refresh token은 버린다. 그래서 refresh token으로 세션을 늘리는 기능이 없고, 세션 수명은 3장의 설정이 정한다.</p>
+<p>→ 이제 세션의 전부(ID 토큰)가 브라우저 쿠키에 있다. Kong 서버와 Keycloak 서버에는 이 세션의 기록이 없다.</p>
+</section>
+<section class="col" id="s2">
+<h2>2. API 호출: 쿠키 안 ID 토큰을 사용자 헤더로 바꾸기까지</h2>
+</section>
+<figure class="fig" id="f-f3"><div class="figbar"><h3>로그인 뒤 API 호출 ⑨~⑪과 세션이 끊기는 네 경우</h3><div class="acts"><button class="btn" type="button" data-expand>크게 보기</button></div></div><div class="figscroll"><svg class="dg" id="f3" viewBox="0 0 954 564" role="img" aria-label="⑨ 브라우저가 쿠키를 실어 API를 부른다. ⑩ Kong 플러그인이 쿠키를 복호화하고 ID 토큰의 서명·aud·만료를 다시 확인한 뒤 X-Credential-Identifier(sub)·X-User-Email 헤더를 붙인다. 서명 확인용 공개키와 설정 문서는 Keycloak에서 5분마다 다시 받는다. ⑪ 백엔드는 헤더로 사용자를 안다. 만료 경과, Kong 재시작, /logout은 다음 요청을 ①로 돌려보내고, Keycloak 응답 없음은 로그인한 사용자에게도 500을 낸다" style="min-width:954px;max-width:954px;margin-inline:auto" xmlns="http://www.w3.org/2000/svg"><defs><marker id="f3-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker><marker id="f3-ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-gap"/></marker></defs><rect class="bg" x="0" y="0" width="954" height="564"/><g class="grp g-gap"><rect x="726" y="14" width="204" height="526" rx="12"/><text class="g-title" x="918" y="32" text-anchor="end">세션이 끊기는 네 경우</text></g><text class="g-title" x="16" y="80" text-anchor="start">브라우저</text><text class="g-title" x="16" y="210" text-anchor="start">Kong 플러그인</text><text class="g-title" x="16" y="340" text-anchor="start">백엔드</text><text class="g-title" x="16" y="470" text-anchor="start">Keycloak</text><g class="e e-solid" data-s="A9" data-t="A10"><polyline points="286.0,88.0 303.0,88.0 303.0,218.0 320.0,218.0" marker-end="url(#f3-a)"/></g><g class="e e-solid" data-s="A10" data-t="A11"><polyline points="496.0,218.0 513.0,218.0 513.0,348.0 530.0,348.0" marker-end="url(#f3-a)"/></g><g class="e e-dash" data-s="A10" data-t="KJ"><polyline points="408.0,266.0 408.0,430.0" marker-end="url(#f3-a)"/></g><g class="e e-gap" data-s="A10" data-t="E2"><polyline points="496.0,218.0 740.0,218.0" marker-end="url(#f3-ag)"/><rect class="lb" x="592.0" y="209.0" width="52.0" height="18" rx="3"/><text class="lt" x="618.0" y="221.6" text-anchor="middle">실패하면</text></g><g class="n n-infra k-svc" data-id="A9" tabindex="0"><rect class="shape" x="110" y="40" width="176" height="96" rx="8"/><text class="t-title" x="198.0" y="77.0" text-anchor="middle">⑨ GET /backend/…</text><text class="t-sub" x="198.0" y="92.0" text-anchor="middle">Cookie: OIDCSESSION0</text><text class="t-sub" x="198.0" y="107.0" text-anchor="middle">매 API 호출마다</text></g><g class="n n-amber k-svc" data-id="A10" tabindex="0"><rect class="shape" x="320" y="170" width="176" height="96" rx="8"/><text class="t-title" x="408.0" y="199.5" text-anchor="middle">⑩ 쿠키 복호화 · 재검증</text><text class="t-sub" x="408.0" y="214.5" text-anchor="middle">세션 확인용 서명·aud·만료 검사</text><text class="t-sub" x="408.0" y="229.5" text-anchor="middle">Keycloak에 사용자 안 물음</text><text class="t-sub" x="408.0" y="244.5" text-anchor="middle">위조 막으려 헤더 덮어쓰기</text></g><g class="n n-ext k-ext" data-id="KJ" tabindex="0"><rect class="shape" x="320" y="430" width="176" height="96" rx="8"/><text class="t-title" x="408.0" y="467.0" text-anchor="middle">설정 문서 · 공개키</text><text class="t-sub" x="408.0" y="482.0" text-anchor="middle">서명 확인할 공개키</text><text class="t-sub" x="408.0" y="497.0" text-anchor="middle">5분 캐시가 끝나면 다시 받음</text></g><g class="n n-cyc k-svc" data-id="A11" tabindex="0"><rect class="shape" x="530" y="300" width="176" height="96" rx="8"/><text class="t-title" x="618.0" y="329.5" text-anchor="middle">⑪ 헤더로 사용자 확인</text><text class="t-sub" x="618.0" y="344.5" text-anchor="middle">X-Credential-Identifier</text><text class="t-sub" x="618.0" y="359.5" text-anchor="middle">= Keycloak 사용자 UUID</text><text class="t-sub" x="618.0" y="374.5" text-anchor="middle">X-User-Email</text></g><g class="n n-gap k-gap" data-id="E1" tabindex="0"><rect class="shape" x="740" y="40" width="176" height="96" rx="8"/><text class="t-title" x="828.0" y="69.5" text-anchor="middle">만료 경과</text><text class="t-sub" x="828.0" y="84.5" text-anchor="middle">lifetime 0 → 토큰 exp 5분</text><text class="t-sub" x="828.0" y="99.5" text-anchor="middle">설정값 → 발급 + N초</text><text class="t-sub" x="828.0" y="114.5" text-anchor="middle">→ 로그인 다시 시작(302)</text></g><g class="n n-gap k-gap" data-id="E2" tabindex="0"><rect class="shape" x="740" y="170" width="176" height="96" rx="8"/><text class="t-title" x="828.0" y="199.5" text-anchor="middle">Kong 재시작 · 다른 파드</text><text class="t-sub" x="828.0" y="214.5" text-anchor="middle">쿠키 키가 바뀜</text><text class="t-sub" x="828.0" y="229.5" text-anchor="middle">복호화 실패</text><text class="t-sub" x="828.0" y="244.5" text-anchor="middle">→ 로그인 다시 시작(302)</text></g><g class="n n-gap k-gap" data-id="E3" tabindex="0"><rect class="shape" x="740" y="300" width="176" height="96" rx="8"/><text class="t-title" x="828.0" y="329.5" text-anchor="middle">GET /logout</text><text class="t-sub" x="828.0" y="344.5" text-anchor="middle">Kong 쿠키만 삭제</text><text class="t-sub" x="828.0" y="359.5" text-anchor="middle">Keycloak 세션은 남음</text><text class="t-sub" x="828.0" y="374.5" text-anchor="middle">→ 재접속 땐 비밀번호 생략</text></g><g class="n n-gap k-gap" data-id="E4" tabindex="0"><rect class="shape" x="740" y="430" width="176" height="96" rx="8"/><text class="t-title" x="828.0" y="467.0" text-anchor="middle">Keycloak 응답 없음</text><text class="t-sub" x="828.0" y="482.0" text-anchor="middle">캐시 5분이 끝난 뒤</text><text class="t-sub" x="828.0" y="497.0" text-anchor="middle">로그인한 사용자도 500</text></g></svg></div><figcaption>⑨~⑪은 API를 부를 때마다 반복됩니다. Kong은 사용자 확인을 Keycloak에 묻지 않지만 설정 문서·공개키는 5분마다 다시 받습니다. 빨간 칸 위 셋은 다음 요청을 그림 1의 ①로 돌려보내고, 맨 아래는 500을 냅니다.</figcaption></figure>
+<section class="col">
+<h3>⑨ 브라우저가 쿠키를 실어 API를 부름</h3>
+<pre class="snip">GET https://app.example.com/backend/api/v1/users/me
+Cookie: OIDCSESSION0=&lt;암호화{ ID 토큰 }&gt;</pre>
+<p>→ <code>/</code>와 <code>/backend</code>는 서로 다른 Kong 라우트지만 같은 쿠키를 쓴다. 쿠키 이름이 같고 <code>Path=/</code>이며, 같은 oidcify 프로세스 안에서는 암호화 키도 같다.</p>
+<h3>⑩ Kong 플러그인이 쿠키를 풀어 ID 토큰을 다시 검증하고 헤더를 붙임</h3>
+<ol>
+<li>5분 캐시에서 Keycloak 공개키를 꺼낸다. 캐시가 끝났으면 Keycloak에서 다시 받는다.</li>
+<li>쿠키를 복호화해 ID 토큰의 서명·<code>aud</code>·만료를 확인한다. 이 사용자가 아직 유효한지는 Keycloak에 묻지 않는다.</li>
+<li>통과하면 헤더를 붙여 백엔드로 넘긴다(값은 예시).</li>
+</ol>
+<pre class="snip">X-Consumer-Id:           &lt;consumer UUID&gt;                <span class="c"># 설정의 consumer, 모든 사용자 공통</span>
+X-Consumer-Username:     app-oidc
+X-Credential-Identifier: 3f2a1c…(Keycloak 사용자 UUID)  <span class="c"># ⑦의 sub</span>
+X-User-Email:            user@example.com               <span class="c"># 설정 headers_from_claims {X-User-Email: email}</span></pre>
+<p>→ 같은 이름의 헤더가 요청에 이미 있으면 플러그인이 덮어쓰거나 지운다. 그래서 브라우저가 헤더를 직접 넣어도 백엔드에는 플러그인이 넣은 값만 간다.</p>
+<p>→ 만료가 지났거나 쿠키를 풀지 못하면 헤더 대신 ②처럼 Keycloak으로 302한다.</p>
+<h3>⑪ 백엔드가 헤더로 사용자를 확인</h3>
+<p>→ 백엔드도 쿠키를 받지만 풀 키가 없다. 그래서 <code>X-Credential-Identifier</code>만 보고 사용자를 알고, 백엔드 코드에는 로그인 처리가 없다. 이 글 첫 줄의 <code>3f2a1c…</code>가 여기서 찍힌 값이다.</p>
+</section>
+<section class="col" id="s3">
+<h2>3. Keycloak 장애·세션 수명·Kong 재시작·로그아웃에서 생기는 결과</h2>
+<p>①~⑪에서 세션이 브라우저 쿠키에만 있고 Kong이 Keycloak에 사용자를 묻지 않는다는 것을 봤다. 그래서 아래 결과는 Kong 플러그인 설정으로 정해진다.</p>
+<h3>Keycloak이 멈추면 로그인한 사용자도 5분 안에 500을 받음</h3>
+<ol>
+<li>⑩의 서명 확인에 Keycloak 공개키가 필요하다 → Kong은 공개키와 설정 문서를 5분 동안 캐시한다.</li>
+<li>5분이 지나면 다음 요청에서 설정 문서를 Keycloak에서 다시 받는다.</li>
+<li>이때 Keycloak이 응답하지 않는다 → 설정 문서를 받지 못한다.</li>
+<li>쿠키가 멀쩡해도 → 500.</li>
+</ol>
+<h3>Kong을 거치지 않는 경로가 있으면 헤더를 위조할 수 있음</h3>
+<ol>
+<li>백엔드는 ⑪처럼 헤더만 믿는다 → 헤더를 덮어쓰는 것은 ⑩의 Kong 플러그인이다.</li>
+<li>Kong을 거치지 않고 백엔드에 닿는 경로가 있다 → 그 경로로 온 요청의 헤더는 덮어써지지 않는다.</li>
+<li>누구나 <code>X-Credential-Identifier</code>, <code>X-User-Email</code>을 직접 넣어 다른 사용자로 요청할 수 있다.</li>
+</ol>
+<h3>라우트마다 세션 수명이 다르면 가장 짧은 값이 전체 세션을 끊음</h3>
+<ol>
+<li>⑨처럼 <code>/</code>와 <code>/backend</code>가 같은 쿠키를 쓴다.</li>
+<li>수명이 짧은 라우트에서 ⑩의 만료 확인이 실패한다 → 그 라우트가 쿠키를 "로그인 진행 중" 상태로 덮어쓴다.</li>
+<li>덮어쓴 쿠키에는 ID 토큰이 없다 → 수명이 긴 라우트의 세션도 함께 끝난다.</li>
+</ol>
+</section>
+<figure class="fig" id="f-f4"><div class="figbar"><h3>세션이 끝나는 시점: session_lifetime_seconds 0과 99999에서 Kong·Keycloak 세션</h3><div class="acts"><button class="btn" type="button" data-expand>크게 보기</button></div></div><div class="figscroll"><svg class="dg" id="f4" viewBox="0 0 924 372" role="img" aria-label="같은 시각에 로그인했을 때. lifetime 0이면 Kong 세션은 5분마다 끊기고 Keycloak을 거쳐 비밀번호 없이 이어지며, 그 덕에 Keycloak 세션도 갱신돼 최대 10시간까지 간다. 99999초면 Kong 세션은 약 27.8시간 유지되고 Keycloak에는 다시 가지 않아, Keycloak 세션은 유휴 30분에 끝나고 그 뒤 약 27.3시간은 Kong 세션만 남는다" style="min-width:924px;max-width:924px;margin-inline:auto" xmlns="http://www.w3.org/2000/svg"><defs><marker id="f4-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker><marker id="f4-ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-gap"/></marker></defs><rect class="bg" x="0" y="0" width="924" height="372"/><text class="g-title" x="16" y="84" text-anchor="start">Kong (0)</text><text class="g-title" x="16" y="158" text-anchor="start">Keycloak (0)</text><text class="g-title" x="16" y="248" text-anchor="start">Kong (99999)</text><text class="g-title" x="16" y="322" text-anchor="start">Keycloak (99999)</text><text class="g-title" x="150" y="34" text-anchor="start">0h</text><text class="g-title" x="410" y="34" text-anchor="start">10h</text><text class="g-title" x="866" y="34" text-anchor="start">27.8h</text><g class="n n-gap k-gap" data-id="Z" tabindex="0"><rect class="shape" x="150" y="50" width="270" height="60" rx="8"/><text class="t-title" x="285.0" y="69.0" text-anchor="middle">5분마다 끊기고 바로 이어짐</text><text class="t-sub" x="285.0" y="84.0" text-anchor="middle">Keycloak 302 → 비밀번호 없이 복귀</text><text class="t-sub" x="285.0" y="99.0" text-anchor="middle">fetch API는 실패(예상)</text></g><g class="n n-infra k-svc" data-id="ZE" tabindex="0"><rect class="shape" x="428" y="50" width="120" height="60" rx="8"/><text class="t-title" x="488.0" y="76.5" text-anchor="middle">비밀번호 다시</text><text class="t-sub" x="488.0" y="91.5" text-anchor="middle">10시간 뒤</text></g><g class="n n-ext k-ext" data-id="ZK" tabindex="0"><rect class="shape" x="150" y="124" width="270" height="60" rx="8"/><text class="t-title" x="285.0" y="150.5" text-anchor="middle">Keycloak 세션</text><text class="t-sub" x="285.0" y="165.5" text-anchor="middle">5분마다 갱신 · 최대 10시간</text></g><g class="n n-ua k-svc" data-id="N" tabindex="0"><rect class="shape" x="150" y="214" width="750" height="60" rx="8"/><text class="t-title" x="525.0" y="240.5" text-anchor="middle">Kong 세션 = 발급 + 99999초 ≈ 27.8시간</text><text class="t-sub" x="525.0" y="255.5" text-anchor="middle">이 동안 Keycloak에 사용자를 묻지 않음</text></g><g class="n n-ext k-ext" data-id="NK" tabindex="0"><rect class="shape" x="150" y="288" width="110" height="60" rx="8"/><text class="t-title" x="205.0" y="314.5" text-anchor="middle">30분 유휴</text><text class="t-sub" x="205.0" y="329.5" text-anchor="middle">만료</text></g><g class="n n-gap k-gap" data-id="NG" tabindex="0"><rect class="shape" x="268" y="288" width="632" height="60" rx="8"/><text class="t-title" x="584.0" y="314.5" text-anchor="middle">Keycloak 세션 없이 Kong 세션만 남음</text><text class="t-sub" x="584.0" y="329.5" text-anchor="middle">약 27.3시간 · 이 사이 사용자 차단이 반영 안 됨</text></g></svg></div><figcaption>10시간·27.8시간 막대는 같은 축척이고, 30분 칸은 글자를 넣으려고 넓혔습니다. Keycloak 시간 값은 Keycloak 기본값입니다.</figcaption></figure>
+<section class="col">
+<h3><code>session_lifetime_seconds = 0</code>(기본값)이면 5분마다 세션이 끝나고 Keycloak을 거쳐 다시 로그인됨</h3>
+<ol>
+<li>만료 = ⑦의 <code>exp</code> = 발급 + 300초(Keycloak 기본값).</li>
+<li>refresh token이 없다(⑧) → 5분 뒤 요청은 ⑩에서 만료로 실패한다 → Kong이 Keycloak으로 302한다.</li>
+<li>Keycloak 세션이 남아 있다 → ④에서 비밀번호 없이 돌아온다. 이때 Keycloak 세션도 갱신돼 최대 10시간(기본값)까지 간다.</li>
+<li>화면 이동은 Keycloak을 거쳐 같은 화면으로 돌아온다. 하지만 <code>fetch</code>로 부른 API는 Keycloak 주소로 302를 받는다 → 브라우저가 다른 도메인 응답을 막아(CORS) 호출이 실패한다(예상).</li>
+</ol>
+<p>→ 고객 현장 배포에서 "5분마다 로그인이 풀린다"는 문의가 있었고, 원인이 이 경우였다.</p>
+<h3><code>session_lifetime_seconds = 99999</code>이면 Kong 세션이 Keycloak 세션보다 27시간 넘게 오래 감</h3>
+<ol>
+<li>만료 = 발급 시각 + 99999초(약 27.8시간). ⑦의 <code>exp</code>는 보지 않는다 → 5분마다 Keycloak으로 가는 일이 없다.</li>
+<li>브라우저가 로그인 뒤 Keycloak에 다시 가지 않는다 → Keycloak 세션이 갱신되지 않는다.</li>
+<li>Keycloak 세션은 유휴 만료(기본 1800초 = 30분)로 먼저 끝난다.</li>
+<li>Kong 세션은 그 뒤로 약 27.3시간(99999 − 1800 = 98199초) 더 통과한다.</li>
+</ol>
+<p>→ 두 세션(Kong, Keycloak)은 따로 만료되고, 둘을 맞춰 주는 설정은 없다.</p>
+<h3>어느 설정이든 쿠키 자체에 상한이 둘 있음</h3>
+<ul>
+<li>쿠키에 만료 속성(<code>Expires</code>)이 없다 → 브라우저를 닫으면 쿠키가 사라진다.</li>
+<li>쿠키 라이브러리(gorilla/securecookie)는 기본으로 30일 지난 쿠키를 거부한다 → 설정이 30일보다 길어도 발급 30일 뒤에는 복호화에 실패한다.</li>
+</ul>
+</section>
+<figure class="fig" id="f-f5"><div class="figbar"><h3>쿠키 키를 비워 둔 Kong이 재시작되거나 두 대일 때 세션이 끊기는 과정</h3><div class="acts"><button class="btn" type="button" data-expand>크게 보기</button></div></div><div class="figscroll"><svg class="dg" id="f5" viewBox="0 0 908 296" role="img" aria-label="쿠키 키를 설정하지 않으면 Kong 플러그인은 시작할 때 무작위 키를 만든다. 키 A로 암호화된 쿠키는 재시작 뒤의 키 B로 복호화되지 않아 다시 로그인한다. 파드가 두 대면 각자 다른 키를 가져, 요청이 다른 파드로 가는 순간 같은 일이 생긴다" style="min-width:908px;max-width:908px;margin-inline:auto" xmlns="http://www.w3.org/2000/svg"><defs><marker id="f5-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker><marker id="f5-ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-gap"/></marker></defs><rect class="bg" x="0" y="0" width="908" height="296"/><text class="g-title" x="16" y="76" text-anchor="start">재시작</text><text class="g-title" x="16" y="226" text-anchor="start">파드 2대</text><g class="e e-solid" data-s="R1" data-t="R2"><polyline points="266.0,81.0 302.0,81.0" marker-end="url(#f5-a)"/></g><g class="e e-solid" data-s="R2" data-t="R3"><polyline points="472.0,81.0 508.0,81.0" marker-end="url(#f5-a)"/></g><g class="e e-solid" data-s="R3" data-t="R4"><polyline points="678.0,81.0 714.0,81.0" marker-end="url(#f5-a)"/></g><g class="e e-solid" data-s="P1" data-t="P2"><polyline points="266.0,231.0 302.0,231.0" marker-end="url(#f5-a)"/></g><g class="e e-solid" data-s="P2" data-t="P3"><polyline points="472.0,231.0 508.0,231.0" marker-end="url(#f5-a)"/></g><g class="n n-amber k-svc" data-id="R1" tabindex="0"><rect class="shape" x="96" y="40" width="170" height="82" rx="8"/><text class="t-title" x="181.0" y="70.0" text-anchor="middle">Kong 시작</text><text class="t-sub" x="181.0" y="85.0" text-anchor="middle">무작위 키 A 생성</text><text class="t-sub" x="181.0" y="100.0" text-anchor="middle">(메모리에만 있음)</text></g><g class="n n-infra k-svc" data-id="R2" tabindex="0"><rect class="shape" x="302" y="40" width="170" height="82" rx="8"/><text class="t-title" x="387.0" y="77.5" text-anchor="middle">로그인 완료</text><text class="t-sub" x="387.0" y="92.5" text-anchor="middle">쿠키 = 키 A로 암호화</text></g><g class="n n-gap k-gap" data-id="R3" tabindex="0"><rect class="shape" x="508" y="40" width="170" height="82" rx="8"/><text class="t-title" x="593.0" y="70.0" text-anchor="middle">Kong 재시작</text><text class="t-sub" x="593.0" y="85.0" text-anchor="middle">새 무작위 키 B 생성</text><text class="t-sub" x="593.0" y="100.0" text-anchor="middle">키 A는 사라짐</text></g><g class="n n-gap k-gap" data-id="R4" tabindex="0"><rect class="shape" x="714" y="40" width="170" height="82" rx="8"/><text class="t-title" x="799.0" y="70.0" text-anchor="middle">302 → 재로그인</text><text class="t-sub" x="799.0" y="85.0" text-anchor="middle">키 B로 복호화 실패</text><text class="t-sub" x="799.0" y="100.0" text-anchor="middle">각 사용자의 다음 요청</text></g><g class="n n-amber k-svc" data-id="P1" tabindex="0"><rect class="shape" x="96" y="190" width="170" height="82" rx="8"/><text class="t-title" x="181.0" y="227.5" text-anchor="middle">파드 A · 키 A</text><text class="t-sub" x="181.0" y="242.5" text-anchor="middle">로그인 처리</text></g><g class="n n-infra k-svc" data-id="P2" tabindex="0"><rect class="shape" x="302" y="190" width="170" height="82" rx="8"/><text class="t-title" x="387.0" y="227.5" text-anchor="middle">쿠키 = 키 A</text><text class="t-sub" x="387.0" y="242.5" text-anchor="middle">브라우저 보관</text></g><g class="n n-gap k-gap" data-id="P3" tabindex="0"><rect class="shape" x="508" y="190" width="170" height="82" rx="8"/><text class="t-title" x="593.0" y="220.0" text-anchor="middle">다음 요청 → 파드 B</text><text class="t-sub" x="593.0" y="235.0" text-anchor="middle">키 B로 복호화 실패</text><text class="t-sub" x="593.0" y="250.0" text-anchor="middle">콜백이면 400</text></g><g class="n n-ua k-svc" data-id="FIX" tabindex="0"><rect class="shape" x="714" y="190" width="170" height="82" rx="8"/><text class="t-title" x="799.0" y="212.5" text-anchor="middle">해결: 키 두 개 설정</text><text class="t-sub" x="799.0" y="227.5" text-anchor="middle">cookie_hash_key_hex</text><text class="t-sub" x="799.0" y="242.5" text-anchor="middle">cookie_block_key_hex</text><text class="t-sub" x="799.0" y="257.5" text-anchor="middle">모든 파드가 같은 키로 복호화</text></g></svg></div><figcaption>위는 Kong 파드가 재시작될 때, 아래는 Kong 파드가 두 대일 때입니다. 키 두 개를 같은 도메인의 모든 oidcify 라우트에 같은 값으로 넣으면, 모든 파드와 재시작 후에도 같은 키를 씁니다.</figcaption></figure>
+<section class="col">
+<h3>쿠키 암호화 키를 비워 두면 Kong 재시작 때 모든 사용자가 다시 로그인함</h3>
+<p>쿠키를 서명·암호화하는 키는 플러그인 설정 <code>cookie_hash_key_hex</code>, <code>cookie_block_key_hex</code> 두 개다. 비워 두면 플러그인은 프로세스가 시작할 때 무작위 키를 만들어 메모리에만 둔다.</p>
+<pre class="snip">// main.go — 프로세스 시작 때 한 번
+autoGenHashKey  = securecookie.GenerateRandomKey(cookieKeyLenBytes)  // cookieKeyLenBytes = 32
+autoGenBlockKey = securecookie.GenerateRandomKey(cookieKeyLenBytes)</pre>
+<ol>
+<li>Kong 파드가 재시작된다 → 플러그인이 새 무작위 키를 만든다. 옛 키는 메모리와 함께 사라졌다.</li>
+<li>브라우저 쿠키는 옛 키로 암호화돼 있다 → ⑩에서 복호화되지 않는다.</li>
+<li>플러그인은 세션이 없는 것으로 본다 → ②와 같은 302를 돌려준다.</li>
+<li>사용자마다 다음 요청에서 다시 로그인한다.</li>
+</ol>
+<p>→ 확인한 클러스터에서는 oidcify 설정 9개 중 켜져 있는 7개가 모두 키를 비워 두고 있었다(키가 들어 있는 1개는 꺼져 있음).</p>
+<h3>Kong 파드가 두 대면 로그인이 풀렸다 붙었다 함</h3>
+<ol>
+<li>키를 비워 두면 파드 A와 파드 B가 각자 다른 무작위 키를 갖는다.</li>
+<li>파드 A에서 로그인했다 → 쿠키는 키 A로 암호화돼 있다.</li>
+<li>다음 요청이 파드 B로 간다 → 키 B로 복호화되지 않는다 → 302. ⑤의 콜백이 파드 B로 가면 ⑥의 2번에서 400.</li>
+</ol>
+<p>→ 확인한 클러스터는 Kong 파드가 한 대라 이 경우는 생기지 않았다.</p>
+<h3>쿠키 키는 16진수 64자 두 개를 모든 라우트에 같게 넣음</h3>
+<pre class="snip">openssl rand -hex 32   <span class="c"># 한 번에 하나씩, 두 번 실행해 두 키에 넣는다</span></pre>
+<p>→ README는 32자라고 적지만 소스의 입력 검사는 <code>len=64</code>다.</p>
+<p>→ 같은 도메인의 모든 oidcify 라우트에 같은 두 값을 넣어야 한다. 일부 라우트만 넣으면 라우트를 오갈 때 서로 쿠키를 풀지 못한다.</p>
+<h3>쿠키 키가 새면 쿠키 안 ID 토큰을 읽고 진짜 토큰으로 쿠키를 다시 만들 수 있음</h3>
+<ol>
+<li>키를 아는 사람은 가로챈 쿠키를 풀어 안의 ID 토큰(이메일·사용자 UUID)을 읽을 수 있다.</li>
+<li>플러그인은 ⑩에서 매번 ID 토큰의 Keycloak 서명을 확인한다 → 서명 없는 가짜 토큰으로 쿠키를 만들 수는 없다.</li>
+<li>손에 넣은 진짜 ID 토큰은 새 쿠키로 다시 감쌀 수 있다 → 발급 시각 + <code>session_lifetime_seconds</code>까지 그 사용자로 통과한다. 새로 감쌌으니 쿠키 30일 상한도 다시 시작된다.</li>
+</ol>
+<p>→ 그래서 쿠키 키도 client secret처럼 다룬다.</p>
+<h3>Keycloak에서 사용자를 막아도 이미 받은 쿠키는 만료까지 통과함</h3>
+<ol>
+<li>Keycloak에서 사용자를 비활성화하거나 역할을 바꾼다.</li>
+<li>Kong은 ⑩에서 Keycloak에 사용자를 묻지 않는다 → 이 변경을 모른다.</li>
+<li>이미 발급된 쿠키는 만료까지 그대로 통과한다. <code>session_lifetime_seconds</code>가 0이면 최대 5분, 99999면 최대 약 27.8시간이다(그 전에 브라우저를 닫으면 그때 끝난다).</li>
+<li>백엔드가 Keycloak에 사용자를 따로 조회하지 않는다면, 그동안 백엔드도 요청을 받는다.</li>
+</ol>
+<p>→ 특정 사용자 한 명의 세션만 끊는 방법은 없다. 쿠키 키를 바꿔 모든 사람의 세션을 한꺼번에 끊는 방법만 있다.</p>
+<h3>로그아웃은 Kong 쿠키만 지우고 Keycloak 세션은 남김</h3>
+<pre class="snip">GET https://app.example.com/logout       <span class="c"># 설정 logout_path</span>
+→ OIDCSESSION 쿠키 삭제
+→ 302 location: https://app.example.com/  <span class="c"># 설정 post_logout_redirect_uri. 비워 두면 200 "Logged out" 페이지</span></pre>
+<ol>
+<li><code>/logout</code>은 Kong 쿠키만 지운다 → Keycloak 도메인의 Keycloak 세션 쿠키는 그대로다.</li>
+<li>다시 접속하면 ①~④를 다시 거친다 → ④에서 Keycloak 세션이 아직 만료되지 않았으면 비밀번호 없이 로그인된다.</li>
+</ol>
+<p>→ 완전히 로그아웃하려면 브라우저가 Keycloak 로그아웃 주소(<code>https://idp.example.com/realms/product/protocol/openid-connect/logout</code>)로도 이동해야 한다. <code>post_logout_redirect_uri</code>를 그 주소로 두면 두 로그아웃이 한 번에 이어진다.</p>
+</section>
+<section class="col" id="s4">
+<h2>4. 확인하지 못한 것</h2>
+<ul>
+<li>④~⑪과 로그아웃은 계정이 필요해 실측하지 않았고, 플러그인 소스를 따라 썼다. Keycloak 쪽 302와 시간 값(code 60초, 토큰 300초, 유휴 30분, 최대 10시간)은 Keycloak 기본값 기준이다. ②의 설정 문서 응답도 표준 필드 기준 예시다.</li>
+<li>client secret이 Basic 헤더로 가는 것은 Go oauth2 라이브러리 기본 동작 기준이다.</li>
+<li>세션이 끝난 뒤 <code>fetch</code> API가 302를 받아 실패하는 것은 브라우저 CORS 동작에서 예상한 것이다.</li>
+<li>설정의 consumer가 Kong에 없을 때: 소스상으로는 오류 없이 <code>X-Consumer-*</code> 헤더만 빠지고 통과한다. 실행해 보지 않았고, consumer 이름으로 권한을 나누는 백엔드라면 확인이 필요하다.</li>
+<li>Keycloak 로그아웃 주소로 보낼 때 확인 화면이 뜨는지는 Keycloak 버전·설정에 따라 다르고, 보지 않았다.</li>
+</ul>
+</section>
+<section class="col" id="s5">
+<h2>5. 로그인 문제는 302·Keycloak 응답·세션 수명·Kong 재시작 순서로 확인</h2>
+<ol>
+<li>첫 요청에 302 대신 500이 나온다 → ②에서 Kong이 Keycloak 설정 문서를 받지 못했다. Keycloak 주소·인증서를 본다.</li>
+<li>로그인한 사용자가 갑자기 500을 받는다 → ⑩의 5분 캐시가 끝난 시점에 Kong에서 Keycloak으로 연결되지 않았다. 그 시각의 Keycloak 상태를 본다.</li>
+<li>5분마다 또는 예상보다 일찍 로그인이 풀린다 → 그 도메인에 붙은 oidcify 라우트들의 <code>session_lifetime_seconds</code> 중 가장 짧은 값을 본다.</li>
+<li>모든 사용자가 한꺼번에 로그인이 풀렸다 → 그 시각에 Kong 파드가 재시작됐는지와 쿠키 키 설정을 본다.</li>
+</ol>
+<p>참고 자료</p>
+<ul>
+<li>oidcify — <code>github.com/hanlaur/oidcify</code> README(Configuration, Session storage), <code>main.go</code> v1.3.2</li>
+<li>Keycloak — <code>Constants.java</code> 기본값(<code>DEFAULT_ACCESS_TOKEN_LIFESPAN</code>, <code>DEFAULT_SESSION_IDLE_TIMEOUT</code>, <code>DEFAULT_ACCESS_CODE_LIFESPAN</code>)</li>
+<li>OpenID Connect Core 1.0 — Authorization Code Flow, <code>nonce</code></li>
+<li>RFC 7636 — Proof Key for Code Exchange(PKCE)</li>
+</ul>
+</section>
+</main>
+<script>(function(){
+  // 그림: 노드를 가리키거나 누르면 연결된 선·노드만 강조
+  document.querySelectorAll('svg.dg').forEach(function(svg){
+    var edges = Array.prototype.slice.call(svg.querySelectorAll('.e[data-s]'));
+    var nodes = Array.prototype.slice.call(svg.querySelectorAll('.n[data-id]'));
+    if (!edges.length) return;
+    var pinned = null;
+    function on(id){
+      svg.classList.add('focus');
+      var rel = {}; rel[id] = true;
+      edges.forEach(function(e){
+        var hit = e.dataset.s === id || e.dataset.t === id;
+        e.classList.toggle('hot', hit);
+        if (hit){ rel[e.dataset.s] = true; rel[e.dataset.t] = true; }
+      });
+      nodes.forEach(function(n){ n.classList.toggle('hot', !!rel[n.dataset.id]); });
+    }
+    function off(){ svg.classList.remove('focus'); edges.concat(nodes).forEach(function(x){ x.classList.remove('hot'); }); }
+    nodes.forEach(function(n){
+      n.addEventListener('pointerenter', function(){ if (!pinned) on(n.dataset.id); });
+      n.addEventListener('pointerleave', function(){ if (!pinned) off(); });
+      n.addEventListener('focus', function(){ on(n.dataset.id); });
+      n.addEventListener('blur', function(){ if (!pinned) off(); });
+      n.addEventListener('click', function(ev){
+        ev.stopPropagation();
+        if (pinned === n.dataset.id){ pinned = null; off(); } else { pinned = n.dataset.id; on(pinned); }
+      });
+    });
+    svg.addEventListener('click', function(){ pinned = null; off(); });
+  });
+
+  // 그림 크게 보기
+  document.querySelectorAll('[data-expand]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var fig = b.closest('figure');
+      var ex = fig.classList.toggle('expanded');
+      b.textContent = ex ? '닫기' : '크게 보기';
+      document.body.style.overflow = ex ? 'hidden' : '';
+    });
+  });
+  document.addEventListener('keydown', function(ev){
+    if (ev.key !== 'Escape') return;
+    var f = document.querySelector('figure.fig.expanded');
+    if (f){ f.classList.remove('expanded'); document.body.style.overflow=''; var b=f.querySelector('[data-expand]'); if(b) b.textContent='크게 보기'; }
+  });
+})();
+</script>
+</body></html>
