@@ -164,7 +164,7 @@ figure.fig.expanded .figscroll svg{width:auto; min-width:1400px !important}
 <p>Kong 뒤 백엔드 로그에 찍히는 <code>X-Credential-Identifier: 3f2a1c…</code> 이게 뭘까?</p>
 <p>정답부터 말하면 Keycloak 사용자 UUID(ID 토큰의 <code>sub</code>)이고, 백엔드가 아니라 Kong의 OIDC 플러그인(oidcify)이 요청마다 넣어 주는 헤더다. 백엔드 코드에 로그인 처리가 없는데도 사용자를 아는 이유가 이것이다.</p>
 <p>그럼 Kong은 이 값을 어디서 꺼낼까? 로그인 세션은 Kong 서버에도 Keycloak 서버에도 없고, 브라우저 쿠키 <code>OIDCSESSION0</code> 하나에 암호화돼 있다. Kong은 요청마다 이 쿠키를 풀어 꺼낸다. 브라우저가 이 쿠키를 받기까지(①~⑧)와 그 쿠키로 API를 부르기까지(⑨~⑪)를 차례로 따라가고, 이 구조에서 생기는 결과(Keycloak 장애, 세션 수명, Kong 재시작, 로그아웃)를 그 뒤에 모았다.</p>
-<p>플러그인은 오픈소스 Kong 플러그인 oidcify v1.3.2다. ①~③의 응답은 운영 중인 클러스터에서 실제로 받은 것이고, ④부터는 플러그인 소스(<code>main.go</code>)를 따라갔다.</p>
+<p>플러그인은 오픈소스 Kong 플러그인 oidcify v1.3.2다. ①~③은 운영 중인 클러스터에 직접 요청해 응답을 확인했고, ④부터는 플러그인 소스(<code>main.go</code>)를 따라갔다.</p>
 </section>
 <section class="col" id="s1">
 <h2>1. 로그인: 쿠키 없는 첫 요청부터 쿠키에 ID 토큰이 들어가기까지</h2>
